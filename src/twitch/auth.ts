@@ -198,6 +198,8 @@ export class TwitchAuth extends Effect.Service<TwitchAuth>()("app/Twitch/Auth", 
 
     const fetchAppToken = Effect.fn("TwitchAuth.fetchAppToken")(
       function*() {
+        yield* Effect.logDebug("Fetching Twitch app access token")
+
         const token = yield* httpClient.post("/oauth2/token", {
           body: HttpBody.urlParams(UrlParams.fromInput({
             grant_type: "client_credentials",
@@ -215,6 +217,8 @@ export class TwitchAuth extends Effect.Service<TwitchAuth>()("app/Twitch/Auth", 
 
     const fetchUserToken = Effect.fn("TwitchAuth.fetchUserToken")(
       function*() {
+        yield* Effect.logDebug("Fetching Twitch user access token")
+
         const token = yield* httpClient.post("/oauth2/token", {
           body: HttpBody.urlParams(UrlParams.fromInput({
             grant_type: "authorization_code",
@@ -234,6 +238,8 @@ export class TwitchAuth extends Effect.Service<TwitchAuth>()("app/Twitch/Auth", 
 
     const refreshUserToken = Effect.fn("TwitchAuth.refreshUserToken")(
       function*(token: UserAccessToken) {
+        yield* Effect.logDebug("Refreshing Twitch user access token")
+
         const refreshedToken = yield* httpClient.post("/oauth2/token", {
           body: HttpBody.urlParams(UrlParams.fromInput({
             grant_type: "refresh_token",

@@ -1,5 +1,22 @@
 import { Schema } from "effect"
 
+export const ChannelChatMessageEvent = Schema.Struct({
+  message_type: Schema.Literal(
+    "channel_points_highlighted",
+    "channel_points_sub_only",
+    "power_ups_gigantified_emote",
+    "power_ups_message_effect",
+    "text",
+    "user_intro"
+  ).annotations({
+    description: "The type of the message"
+  }),
+  message: Schema.Struct({ text: Schema.String }).annotations({
+    description: "The full text of the message"
+  })
+})
+export type ChannelChatMessageEvent = typeof ChannelChatMessageEvent.Type
+
 export const Reward = Schema.Struct({
   id: Schema.String.annotations({
     description: "The reward identifier"
@@ -54,6 +71,9 @@ export const ChannelPointsCustomRewardRedemptionEvent = Schema.Struct({
 export type ChannelPointsCustomRewardRedemptionEvent = typeof ChannelPointsCustomRewardRedemptionEvent.Type
 
 export const TwitchEventsubEvent = Schema.Union(
+  ChannelChatMessageEvent.pipe(
+    Schema.attachPropertySignature("type", "channel.chat.message")
+  ),
   ChannelPointsCustomRewardRedemptionEvent.pipe(
     Schema.attachPropertySignature("type", "channel.channel_points_custom_reward_redemption.add")
   )
@@ -76,6 +96,7 @@ export const TwitchEventsubRequestHeaders = Schema.Struct({
 export type TwitchEventsubRequestHeaders = typeof TwitchEventsubRequestHeaders.Type
 
 export const TwitchEventsubSubscriptionType = Schema.Literal(
+  "channel.chat.message",
   "channel.channel_points_custom_reward_redemption.add"
 ).annotations({
   description: "The notification’s subscription type"

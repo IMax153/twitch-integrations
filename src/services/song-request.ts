@@ -48,7 +48,7 @@ export class FailedToEnqueueSong extends Data.TaggedError("FailedToEnqueueSong")
 const SONG_URL_REGEX =
   /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/([a-zA-Z0-9]{22})(?:\?si=[a-zA-Z0-9_-]+)?$/
 
-export class SongRequest extends Effect.Service<SongRequest>()("app/SongRequest", {
+export class SpotifySongRequest extends Effect.Service<SpotifySongRequest>()("app/Spotify/SongRequest", {
   scoped: Effect.gen(function*() {
     const broadcasterId = yield* Config.string("TWITCH_BROADCASTER_ID")
     const songRequestRewardId = yield* Config.string("TWITCH_SONG_REQUEST_CUSTOM_REWARD_ID")
@@ -149,8 +149,7 @@ export class SongRequest extends Effect.Service<SongRequest>()("app/SongRequest"
         reward_id: songRequestRewardId
       }
     }).pipe(
-      Stream.tap(addToSongQueue),
-      Stream.runDrain,
+      Stream.runForEach(addToSongQueue),
       Effect.interruptible,
       Effect.forkScoped
     )
