@@ -1,0 +1,32 @@
+{
+  "name": "twitch-integrations",
+  "version": "0.0.1",
+  "type": "module",
+  "packageManager": "pnpm@10.12.1+sha512.f0dda8580f0ee9481c5c79a1d927b9164f2c478e90992ad268bbb2465a736984391d6333d2c327913578b2804af33474ca554ba29c04a8b13060a717675ae3ac",
+  "scripts": {
+    "check": "tsc -b tsconfig.json",
+    "build": "tsup && tsx ./scripts/copy-package-json.ts",
+    "dev": "tsx --watch src/main.ts",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "@effect/eslint-plugin": "^0.3.2",
+    "@effect/language-service": "^0.23.0",
+    "@effect/platform": "^0.87.0",
+    "@effect/platform-node": "^0.88.2",
+    "@eslint/js": "^9.29.0",
+    "@tim-smart/openapi-gen": "^0.4.12",
+    "@types/node": "^24.0.4",
+    "effect": "^3.16.9",
+    "eslint": "^9.9.1",
+    "eslint-import-resolver-typescript": "^4.4.3",
+    "eslint-plugin-import-x": "^4.16.0",
+    "eslint-plugin-local-rules": "^3.0.2",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-sort-destructure-keys": "^2.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.35.0"
+  }
+}

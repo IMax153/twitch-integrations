@@ -1,0 +1,5 @@
+.direnv/
+node_modules/
+dist/
+.env
+.tsconfig.tsbuildinfo
