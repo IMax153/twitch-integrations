@@ -1,4 +1,4 @@
-import { Config, Data, Effect, Schedule, Schema, Stream, Tuple } from "effect"
+import { Config, Data, Effect, Predicate, Schedule, Stream } from "effect"
 import type * as SpotifyApi from "../domain/spotify.js"
 import type { ChannelPointsCustomRewardRedemptionEvent } from "../domain/twitch.js"
 import { SpotifyClient } from "../spotify/client.js"
@@ -7,7 +7,6 @@ import { TwitchClient } from "../twitch/client.js"
 export type SongRequestError = InvalidSongUrl | SongNotFound | FailedToEnqueueSong
 
 export class InvalidSongUrl extends Data.TaggedError("InvalidSongUrl")<{
-  readonly cause: unknown
   readonly url: string
 }> {
   toChatMessage(userName: string): string {
@@ -46,12 +45,8 @@ export class FailedToEnqueueSong extends Data.TaggedError("FailedToEnqueueSong")
   }
 }
 
-const SongUrl = Schema.NonEmptyString.pipe(
-  Schema.compose(Schema.TemplateLiteralParser(
-    Schema.Literal("https://open.spotify.com/track/"),
-    Schema.NonEmptyString
-  ))
-)
+const SONG_URL_REGEX =
+  /^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/([a-zA-Z0-9]{22})(?:\?si=[a-zA-Z0-9_-]+)?$/
 
 export class SongRequest extends Effect.Service<SongRequest>()("app/SongRequest", {
   scoped: Effect.gen(function*() {
@@ -61,13 +56,13 @@ export class SongRequest extends Effect.Service<SongRequest>()("app/SongRequest"
     const spotifyClient = yield* SpotifyClient
     const twitchClient = yield* TwitchClient
 
-    const decodeSongUrl = Schema.decode(SongUrl)
     const getSongIdentifier = Effect.fn("SongRequest.getSongIdentifier")(
-      (songUrl: string) => {
-        return decodeSongUrl(songUrl.split("?")[0]).pipe(
-          Effect.map(Tuple.getSecond),
-          Effect.mapError((cause) => new InvalidSongUrl({ cause, url: songUrl }))
-        )
+      function*(songUrl: string) {
+        const match = songUrl.match(SONG_URL_REGEX)
+        if (Predicate.isNotNull(match) && Predicate.isNotUndefined(match[1])) {
+          return match[1]
+        }
+        return yield* new InvalidSongUrl({ url: songUrl })
       }
     )
 
