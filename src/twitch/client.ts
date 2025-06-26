@@ -142,7 +142,11 @@ export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Cli
         Effect.catchAllCause((cause) => new TwitchError({ cause })),
         Effect.as(Stream.fromPubSub(notifications)),
         Stream.unwrapScoped,
-        Stream.tap((event) => Effect.logTrace(event)),
+        Stream.tap((event) =>
+          Effect.logInfo("Event received").pipe(
+            Effect.annotateLogs({ type: event.subscription.type })
+          )
+        ),
         Stream.filterMap(({ event, subscription }) =>
           subscription.type === type
             ? Option.some(event as Extract<TwitchEventsubEvent, { type: Type }>)

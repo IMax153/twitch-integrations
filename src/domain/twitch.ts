@@ -11,9 +11,12 @@ export const ChannelChatMessageEvent = Schema.Struct({
   ).annotations({
     description: "The type of the message"
   }),
-  message: Schema.Struct({ text: Schema.String }).annotations({
-    description: "The full text of the message"
-  })
+  chatter_user_name: Schema.String.annotations({
+    description: "The user name of the user that sent the message."
+  }),
+  message: Schema.Struct({
+    text: Schema.String
+  }).annotations({ description: "The full text of the message" })
 })
 export type ChannelChatMessageEvent = typeof ChannelChatMessageEvent.Type
 

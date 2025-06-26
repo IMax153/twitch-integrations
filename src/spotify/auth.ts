@@ -134,6 +134,7 @@ export class SpotifyAuth extends Effect.Service<SpotifyAuth>()("app/Spotify/Auth
     const refreshToken = Effect.fn("SpotifyAuth.refreshToken")(
       function*(token: AccessToken) {
         yield* Effect.logDebug("Refreshing Spotify access token")
+
         const refreshedToken = yield* httpClient.post("/api/token", {
           body: HttpBody.urlParams(UrlParams.fromInput({
             grant_type: "refresh_token",
