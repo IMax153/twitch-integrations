@@ -23,3 +23,7 @@ export class SpotifySongQueue extends Effect.Service<SpotifySongQueue>()("app/Sp
   }),
   dependencies: [SpotifyClient.Default]
 }) {}
+
+export function isTrackObject(item: SongQueue[number]): item is Api.TrackObject {
+  return item.type === "track"
+}

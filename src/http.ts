@@ -3,9 +3,11 @@ import { NodeHttpServer } from "@effect/platform-node"
 import { Config, Effect, Layer } from "effect"
 import { createServer } from "node:http"
 import { ApiV1 } from "./api.js"
+import { SpotifyHttpLayer } from "./spotify/http.js"
 import { TwitchHttpLayer } from "./twitch/http.js"
 
 const ApiLayer = Layer.provide(HttpApiBuilder.api(ApiV1), [
+  SpotifyHttpLayer,
   TwitchHttpLayer
 ])
 

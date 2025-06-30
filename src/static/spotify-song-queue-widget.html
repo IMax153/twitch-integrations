@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify Queue Widget</title>
+</head>
+<body>
+    <spotify-queue-widget></spotify-queue-widget>
+
+    <script>
+        class SpotifyQueueWidget extends HTMLElement {
+            constructor() {
+                super();
+                this.attachShadow({ mode: 'open' });
+                
+                this.currentSongIndex = 0;
+                this.songs = [];
+                this.lastCurrentSong = null;
+                this.rotationTimer = null;
+                this.fetchTimer = null;
+                this.apiUrl = "https://minbadblue-twitch-integrations.fly.dev/v1/spotify/song-queue";
+                
+                // Development flag - set to true to use mock data
+                this.useMockData = false; // Set to false for production
+                
+                // Mock data for development/preview
+                this.mockData = {
+                    current: {
+                        name: "Anti-Hero",
+                        artists: ["Taylor Swift"],
+                        album: {
+                            name: "Midnights",
+                            artwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23191970;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%234B0082;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='300' fill='url(%23grad)'/%3E%3Ctext x='150' y='160' font-family='Arial, sans-serif' font-size='16' fill='white' text-anchor='middle'%3EAnti-Hero%3C/text%3E%3Ctext x='150' y='180' font-family='Arial, sans-serif' font-size='12' fill='%23ccc' text-anchor='middle'%3ETaylor Swift%3C/text%3E%3C/svg%3E"
+                        }
+                    },
+                    next: [
+                        {
+                            name: "As It Was",
+                            artists: ["Harry Styles"],
+                            album: {
+                                name: "Harry's House",
+                                artwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23FF6B6B;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23FF8E53;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='300' fill='url(%23grad)'/%3E%3Ctext x='150' y='160' font-family='Arial, sans-serif' font-size='16' fill='white' text-anchor='middle'%3EAs It Was%3C/text%3E%3Ctext x='150' y='180' font-family='Arial, sans-serif' font-size='12' fill='%23ccc' text-anchor='middle'%3EHarry Styles%3C/text%3E%3C/svg%3E"
+                            }
+                        },
+                        {
+                            name: "Unholy",
+                            artists: ["Sam Smith", "Kim Petras"],
+                            album: {
+                                name: "Gloria",
+                                artwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23000000;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23434343;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='300' fill='url(%23grad)'/%3E%3Ctext x='150' y='160' font-family='Arial, sans-serif' font-size='16' fill='white' text-anchor='middle'%3EUnholy%3C/text%3E%3Ctext x='150' y='180' font-family='Arial, sans-serif' font-size='12' fill='%23ccc' text-anchor='middle'%3ESam Smith%3C/text%3E%3C/svg%3E"
+                            }
+                        },
+                        {
+                            name: "Flowers",
+                            artists: ["Miley Cyrus"],
+                            album: {
+                                name: "Endless Summer Vacation",
+                                artwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23FFD700;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%23FFA500;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='300' fill='url(%23grad)'/%3E%3Ctext x='150' y='160' font-family='Arial, sans-serif' font-size='16' fill='white' text-anchor='middle'%3EFlowers%3C/text%3E%3Ctext x='150' y='180' font-family='Arial, sans-serif' font-size='12' fill='%23fff' text-anchor='middle'%3EMiley Cyrus%3C/text%3E%3C/svg%3E"
+                            }
+                        },
+                        {
+                            name: "Shivers",
+                            artists: ["Ed Sheeran"],
+                            album: {
+                                name: "= (Equals)",
+                                artwork: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%2300CED1;stop-opacity:1' /%3E%3Cstop offset='100%25' style='stop-color:%230080FF;stop-opacity:1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='300' height='300' fill='url(%23grad)'/%3E%3Ctext x='150' y='160' font-family='Arial, sans-serif' font-size='16' fill='white' text-anchor='middle'%3EShivers%3C/text%3E%3Ctext x='150' y='180' font-family='Arial, sans-serif' font-size='12' fill='%23ccc' text-anchor='middle'%3EEd Sheeran%3C/text%3E%3C/svg%3E"
+                            }
+                        }
+                    ]
+                };
+                
+                this.render();
+                this.init();
+            }
+            
+            disconnectedCallback() {
+                this.clearTimers();
+            }
+            
+            clearTimers() {
+                if (this.rotationTimer) {
+                    clearInterval(this.rotationTimer);
+                    this.rotationTimer = null;
+                }
+                if (this.fetchTimer) {
+                    clearInterval(this.fetchTimer);
+                    this.fetchTimer = null;
+                }
+            }
+            
+            render() {
+                this.shadowRoot.innerHTML = `
+                    <style>
+                        :host {
+                            display: block;
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        }
+                        
+                        .widget-container {
+                            width: 400px;
+                            background: linear-gradient(135deg, #24273a 0%, #363a4f 100%);
+                            border: 1px solid #494d64;
+                            border-radius: 12px;
+                            padding: 16px;
+                            display: flex;
+                            align-items: center;
+                            gap: 16px;
+                            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                            position: relative;
+                            overflow: hidden;
+                        }
+
+                        .widget-container::before {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: linear-gradient(135deg, rgba(166, 218, 149, 0.1) 0%, rgba(138, 173, 244, 0.05) 100%);
+                            border-radius: 12px;
+                            transition: background 0.3s ease;
+                        }
+
+                        .album-art {
+                            width: 80px;
+                            height: 80px;
+                            border-radius: 8px;
+                            object-fit: cover;
+                            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+                            z-index: 2;
+                            position: relative;
+                            transition: transform 0.3s ease, box-shadow 0.3s ease;
+                            border: 1px solid #494d64;
+                        }
+
+                        .song-info {
+                            flex: 1;
+                            color: #cad3f5;
+                            z-index: 2;
+                            position: relative;
+                            min-width: 0;
+                        }
+
+                        .song-header {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: flex-start;
+                            margin-bottom: 8px;
+                        }
+
+                        .song-title {
+                            font-size: 18px;
+                            font-weight: 600;
+                            color: #cad3f5;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            max-width: 280px;
+                        }
+
+                        .spotify-logo {
+                            width: 20px;
+                            height: 20px;
+                            fill: #a6da95;
+                            flex-shrink: 0;
+                        }
+
+                        .song-details {
+                            margin-bottom: 8px;
+                        }
+
+                        .song-artist {
+                            font-size: 14px;
+                            color: #a5adcb;
+                            margin-bottom: 2px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+
+                        .song-album {
+                            font-size: 12px;
+                            color: #6e738d;
+                            font-style: italic;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+
+                        .song-status {
+                            font-size: 12px;
+                            color: #a6da95;
+                            font-weight: 500;
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                        }
+
+                        .song-status.next {
+                            color: #8aadf4;
+                        }
+
+                        .error {
+                            background: linear-gradient(135deg, #ed8796 0%, #ee99a0 100%);
+                        }
+
+                        .error .song-status {
+                            color: #24273a;
+                        }
+
+                        .loading {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: #a5adcb;
+                            font-size: 14px;
+                        }
+
+                        @keyframes pulse {
+                            0%, 100% { transform: scale(1); }
+                            50% { transform: scale(1.05); }
+                        }
+
+                        .playing .album-art {
+                            animation: pulse 2s infinite;
+                            box-shadow: 0 4px 20px rgba(166, 218, 149, 0.4);
+                        }
+
+                        .playing::before {
+                            background: linear-gradient(135deg, rgba(166, 218, 149, 0.15) 0%, rgba(138, 173, 244, 0.1) 100%);
+                        }
+                    </style>
+                    
+                    <div class="widget-container" id="widget">
+                        <img class="album-art" id="albumArt" alt="Album artwork">
+                        
+                        <div class="song-info">
+                            <div class="song-header">
+                                <div class="song-title" id="songTitle">Loading...</div>
+                                <svg class="spotify-logo" viewBox="0 0 24 24">
+                                    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+                                </svg>
+                            </div>
+                            <div class="song-details">
+                                <div class="song-artist" id="songArtist"></div>
+                                <div class="song-album" id="songAlbum"></div>
+                            </div>
+                            <div class="song-status" id="songStatus">Connecting...</div>
+                        </div>
+                    </div>
+                `;
+                
+                this.elements = {
+                    widget: this.shadowRoot.getElementById('widget'),
+                    albumArt: this.shadowRoot.getElementById('albumArt'),
+                    songTitle: this.shadowRoot.getElementById('songTitle'),
+                    songArtist: this.shadowRoot.getElementById('songArtist'),
+                    songAlbum: this.shadowRoot.getElementById('songAlbum'),
+                    songStatus: this.shadowRoot.getElementById('songStatus')
+                };
+            }
+            
+            async init() {
+                // Set placeholder image initially
+                this.elements.albumArt.src = this.getPlaceholderImage();
+                
+                // Fetch initial data
+                await this.fetchQueue();
+                
+                // Set up periodic fetching (every 10 seconds)
+                this.fetchTimer = setInterval(() => this.fetchQueue(), 10000);
+            }
+            
+            async fetchQueue() {
+                try {
+                    let data;
+                    
+                    if (this.useMockData) {
+                        // Simulate API delay for realistic behavior
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        data = this.mockData;
+                        console.log('Using mock data for development');
+                    } else {
+                        const response = await fetch(this.apiUrl);
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        
+                        data = await response.json();
+                    }
+                    
+                    this.processQueueData(data);
+                    
+                } catch (error) {
+                    console.error('Error fetching Spotify queue:', error);
+                    this.showError();
+                }
+            }
+            
+            processQueueData(data) {
+                // Check if current song has changed
+                const newCurrentSong = data.current;
+                const currentSongChanged = !this.lastCurrentSong || 
+                    !newCurrentSong ||
+                    this.lastCurrentSong.name !== newCurrentSong.name ||
+                    JSON.stringify(this.lastCurrentSong.artists) !== JSON.stringify(newCurrentSong.artists);
+
+                // If current song hasn't changed, don't update anything
+                if (!currentSongChanged) {
+                    return;
+                }
+
+                this.lastCurrentSong = newCurrentSong ? { ...newCurrentSong } : null;
+
+                const newSongs = [];
+                
+                // Add current song
+                if (data.current) {
+                    newSongs.push({
+                        ...data.current,
+                        status: 'Now Playing',
+                        isPlaying: true
+                    });
+                }
+                
+                // Add next songs
+                if (data.next && Array.isArray(data.next)) {
+                    data.next.forEach((song, index) => {
+                        newSongs.push({
+                            ...song,
+                            status: `Up Next (#${index + 1})`,
+                            isPlaying: false
+                        });
+                    });
+                }
+                
+                // Update songs and reset rotation
+                if (newSongs.length > 0) {
+                    this.songs = newSongs;
+                    this.currentSongIndex = 0;
+                    this.startRotation();
+                    this.showSong(this.songs[0]);
+                } else {
+                    this.showNoSongs();
+                }
+            }
+            
+            showSong(song) {
+                if (!song) return;
+                
+                // Get current values to check if update is needed
+                const currentTitle = this.elements.songTitle.textContent;
+                const currentArtist = this.elements.songArtist.textContent;
+                const currentAlbum = this.elements.songAlbum.textContent;
+                const currentStatus = this.elements.songStatus.textContent;
+                
+                const newTitle = song.name || 'Unknown Song';
+                const newArtist = Array.isArray(song.artists) 
+                    ? song.artists.join(', ') 
+                    : song.artist || 'Unknown Artist';
+                const newAlbum = song.album?.name || '';
+                const newStatus = song.status || '';
+                
+                // Only update if content has actually changed
+                const contentChanged = currentTitle !== newTitle || 
+                                     currentArtist !== newArtist || 
+                                     currentAlbum !== newAlbum || 
+                                     currentStatus !== newStatus;
+                
+                if (!contentChanged) {
+                    // Still update playing state without flicker
+                    if (song.isPlaying) {
+                        this.elements.songStatus.classList.remove('next');
+                        this.elements.widget.classList.add('playing');
+                    } else {
+                        this.elements.songStatus.classList.add('next');
+                        this.elements.widget.classList.remove('playing');
+                    }
+                    return;
+                }
+                
+                // Update content with smooth transition
+                this.elements.songTitle.textContent = newTitle;
+                this.elements.songArtist.textContent = newArtist;
+                this.elements.songAlbum.textContent = newAlbum;
+                this.elements.songStatus.textContent = newStatus;
+                
+                // Update status styling
+                if (song.isPlaying) {
+                    this.elements.songStatus.classList.remove('next');
+                    this.elements.widget.classList.add('playing');
+                } else {
+                    this.elements.songStatus.classList.add('next');
+                    this.elements.widget.classList.remove('playing');
+                }
+                
+                // Update album art only if different
+                const newArtworkSrc = song.album?.artwork || this.getPlaceholderImage();
+                if (this.elements.albumArt.src !== newArtworkSrc) {
+                    this.elements.albumArt.src = newArtworkSrc;
+                    this.elements.albumArt.onerror = () => {
+                        this.elements.albumArt.src = this.getPlaceholderImage();
+                    };
+                }
+                
+                this.elements.widget.classList.remove('error');
+            }
+            
+            showNoSongs() {
+                this.elements.widget.style.opacity = '0.7';
+                
+                setTimeout(() => {
+                    this.elements.songTitle.textContent = 'No songs in queue';
+                    this.elements.songArtist.textContent = '';
+                    this.elements.songAlbum.textContent = '';
+                    this.elements.songStatus.textContent = 'Idle';
+                    this.elements.albumArt.src = this.getPlaceholderImage();
+                    this.elements.widget.classList.remove('playing', 'error');
+                    this.elements.widget.style.opacity = '1';
+                }, 150);
+                
+                this.clearRotationTimer();
+            }
+            
+            showError() {
+                this.elements.widget.style.opacity = '0.7';
+                
+                setTimeout(() => {
+                    this.elements.widget.classList.add('error');
+                    this.elements.songTitle.textContent = 'Connection Error';
+                    this.elements.songArtist.textContent = 'Failed to load Spotify queue';
+                    this.elements.songAlbum.textContent = '';
+                    this.elements.songStatus.textContent = 'Error';
+                    this.elements.albumArt.src = this.getPlaceholderImage();
+                    this.elements.widget.classList.remove('playing');
+                    this.elements.widget.style.opacity = '1';
+                }, 150);
+                
+                this.clearRotationTimer();
+            }
+            
+            startRotation() {
+                this.clearRotationTimer();
+                
+                if (this.songs.length > 1) {
+                    this.rotationTimer = setInterval(() => {
+                        this.currentSongIndex = (this.currentSongIndex + 1) % this.songs.length;
+                        this.showSong(this.songs[this.currentSongIndex]);
+                    }, 4000); // Rotate every 4 seconds
+                }
+            }
+            
+            clearRotationTimer() {
+                if (this.rotationTimer) {
+                    clearInterval(this.rotationTimer);
+                    this.rotationTimer = null;
+                }
+            }
+            
+            getPlaceholderImage() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 300;
+                canvas.height = 300;
+                const ctx = canvas.getContext('2d');
+                
+                // Create gradient background
+                const gradient = ctx.createLinearGradient(0, 0, 300, 300);
+                gradient.addColorStop(0, '#a6da95');
+                gradient.addColorStop(0.5, '#8aadf4');
+                gradient.addColorStop(1, '#c6a0f6');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 300, 300);
+                
+                // Add music note
+                ctx.fillStyle = '#24273a';
+                ctx.font = 'bold 100px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('♪', 150, 180);
+                
+                return canvas.toDataURL();
+            }
+        }
+        
+        customElements.define('spotify-queue-widget', SpotifyQueueWidget);
+    </script>
+</body>
+</html>

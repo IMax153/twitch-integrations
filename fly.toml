@@ -31,6 +31,7 @@ primary_region = 'ewr'
   SPOTIFY_API_BASE_URL = "https://api.spotify.com/v1"
   SPOTIFY_ACCOUNTS_BASE_URL = "https://accounts.spotify.com"
   SPOTIFY_OAUTH2_REDIRECT_URI = "http://127.0.0.1:8080/callback"
+  SPOTIFY_WIDGET_FILE_NAME = "/app/dist/spotify-song-queue-widget.html"
 
   TWITCH_API_BASE_URL = "https://api.twitch.tv"
   TWITCH_IDENTITY_BASE_URL = "https://id.twitch.tv"

@@ -2,8 +2,7 @@ import { Array, Config, Effect, Exit, Match, Option, pipe, Schedule, Stream } fr
 import type * as Api from "../domain/spotify.js"
 import type { ChannelChatMessageEvent } from "../domain/twitch.js"
 import { TwitchClient } from "../twitch/client.js"
-import type { SongQueue } from "./song-queue.js"
-import { SpotifySongQueue } from "./song-queue.js"
+import { isTrackObject, SpotifySongQueue } from "./song-queue.js"
 
 export class TwitchChatMacros extends Effect.Service<TwitchChatMacros>()("app/TwitchChatMacros", {
   scoped: Effect.gen(function*() {
@@ -126,10 +125,6 @@ export class TwitchChatMacros extends Effect.Service<TwitchChatMacros>()("app/Tw
     SpotifySongQueue.Default
   ]
 }) {}
-
-function isTrackObject(item: SongQueue[number]): item is Api.TrackObject {
-  return item.type === "track"
-}
 
 function renderTrack(track: Api.TrackObject) {
   const name = track.name ?? "<unknown>"
