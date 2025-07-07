@@ -73,12 +73,59 @@ export const ChannelPointsCustomRewardRedemptionEvent = Schema.Struct({
 })
 export type ChannelPointsCustomRewardRedemptionEvent = typeof ChannelPointsCustomRewardRedemptionEvent.Type
 
+export const StreamOnlineEvent = Schema.Struct({
+  id: Schema.String.annotations({
+    description: "The id of the stream"
+  }),
+  type: Schema.Literal(
+    "live",
+    "playlist",
+    "watch_party",
+    "premiere",
+    "rerun"
+  ).annotations({ description: "The stream type" }),
+  broadcaster_user_id: Schema.String.annotations({
+    description: "The broadcaster’s user id"
+  }),
+  broadcaster_user_login: Schema.String.annotations({
+    description: "The broadcaster’s user login"
+  }),
+  broadcaster_user_name: Schema.String.annotations({
+    description: "The broadcaster’s user display name"
+  }),
+  started_at: Schema.DateTimeUtc.annotations({
+    description: "The timestamp at which the stream went online at"
+  })
+}).pipe(
+  Schema.rename({ type: "event_type" })
+)
+export type StreamOnlineEvent = typeof StreamOnlineEvent.Type
+
+export const StreamOfflineEvent = Schema.Struct({
+  broadcaster_user_id: Schema.String.annotations({
+    description: "The broadcaster’s user id"
+  }),
+  broadcaster_user_login: Schema.String.annotations({
+    description: "The broadcaster’s user login"
+  }),
+  broadcaster_user_name: Schema.String.annotations({
+    description: "The broadcaster’s user display name"
+  })
+})
+export type StreamOfflineEvent = typeof StreamOfflineEvent.Type
+
 export const TwitchEventsubEvent = Schema.Union(
   ChannelChatMessageEvent.pipe(
     Schema.attachPropertySignature("type", "channel.chat.message")
   ),
   ChannelPointsCustomRewardRedemptionEvent.pipe(
     Schema.attachPropertySignature("type", "channel.channel_points_custom_reward_redemption.add")
+  ),
+  StreamOnlineEvent.pipe(
+    Schema.attachPropertySignature("type", "stream.online")
+  ),
+  StreamOfflineEvent.pipe(
+    Schema.attachPropertySignature("type", "stream.offline")
   )
 )
 export type TwitchEventsubEvent = typeof TwitchEventsubEvent.Type
@@ -100,7 +147,9 @@ export type TwitchEventsubRequestHeaders = typeof TwitchEventsubRequestHeaders.T
 
 export const TwitchEventsubSubscriptionType = Schema.Literal(
   "channel.chat.message",
-  "channel.channel_points_custom_reward_redemption.add"
+  "channel.channel_points_custom_reward_redemption.add",
+  "stream.online",
+  "stream.offline"
 ).annotations({
   description: "The notification’s subscription type"
 })

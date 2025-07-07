@@ -1,5 +1,5 @@
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse, UrlParams } from "@effect/platform"
-import { Config, Data, Effect, Option, PubSub, Redacted, Schema, Stream } from "effect"
+import { Config, Data, Effect, Option, PubSub, Redacted, Ref, Schema, Stream } from "effect"
 import type {
   TwitchEventsubEvent,
   TwitchEventsubNotification,
@@ -13,7 +13,7 @@ export class TwitchError extends Data.TaggedError("TwitchError")<{
 }> {}
 
 export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Client", {
-  effect: Effect.gen(function*() {
+  scoped: Effect.gen(function*() {
     const hostname = yield* Config.string("APPLICATION_HOSTNAME")
     const baseUrl = yield* Config.url("TWITCH_API_BASE_URL")
     const twitchClientId = yield* Config.string("TWITCH_CLIENT_ID")
@@ -23,6 +23,9 @@ export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Cli
 
     const auth = yield* TwitchAuth
     const notifications = yield* PubSub.bounded<TwitchEventsubNotification>(100)
+
+    // Defaulting to true to make it easier to develop while already streaming
+    const isOnline = yield* Ref.make(true)
 
     const notify = Effect.fn("TwitchClient.notify")(
       (notification: TwitchEventsubNotification) => PubSub.publish(notifications, notification)
@@ -142,6 +145,13 @@ export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Cli
         Effect.catchAllCause((cause) => new TwitchError({ cause })),
         Effect.as(Stream.fromPubSub(notifications)),
         Stream.unwrapScoped,
+        // Only emit events if we are currently online or the event is related
+        // to going online/offline
+        Stream.filterEffect((event) =>
+          Ref.get(isOnline).pipe(Effect.map(
+            (isOnline) => isOnline || isOnlineEvent(event.subscription.type)
+          ))
+        ),
         Stream.tap((event) =>
           Effect.logInfo("Event received").pipe(
             Effect.annotateLogs({ type: event.subscription.type })
@@ -153,6 +163,28 @@ export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Cli
             : Option.none()
         )
       )
+
+    yield* listenForEvent("stream.online", {
+      condition: {
+        broadcaster_user_id: twitchBroadcasterId
+      }
+    }).pipe(
+      Stream.tap(() => Effect.logInfo("Stream online")),
+      Stream.runForEach((event) => Ref.set(isOnline, event.event_type === "live")),
+      Effect.interruptible,
+      Effect.forkScoped
+    )
+
+    yield* listenForEvent("stream.offline", {
+      condition: {
+        broadcaster_user_id: twitchBroadcasterId
+      }
+    }).pipe(
+      Stream.tap(() => Effect.logInfo("Stream offline")),
+      Stream.runForEach(() => Ref.set(isOnline, false)),
+      Effect.interruptible,
+      Effect.forkScoped
+    )
 
     // Clear any previous subscriptions before allowing new ones
     yield* appTokenClient.get("/helix/eventsub/subscriptions").pipe(
@@ -178,3 +210,6 @@ export class TwitchClient extends Effect.Service<TwitchClient>()("app/Twitch/Cli
   }),
   dependencies: [TwitchAuth.Default]
 }) {}
+
+const isOnlineEvent = (eventType: TwitchEventsubSubscriptionType): boolean =>
+  eventType === "stream.online" || eventType === "stream.offline"
