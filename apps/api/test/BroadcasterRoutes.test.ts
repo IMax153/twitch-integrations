@@ -366,6 +366,37 @@ describe("broadcaster routes", () => {
       }),
     )
 
+    it.effect("reports denied consent even after the Attempt expired", () =>
+      Effect.gen(function* () {
+        const { startAttempt, callback } = yield* world
+        const { state } = yield* startAttempt("twitch")
+        yield* TestClock.adjust("10 minutes")
+        const response = yield* callback("twitch", { error: "access_denied", state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=denied",
+        )
+      }),
+    )
+
+    it.effect("reports a failed Twitch exchange the same way", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, getConnections } = yield* world
+        yield* providers.set("twitch", {
+          ...grantedScenario,
+          token: { _tag: "Status", status: 503 },
+        })
+        const { state } = yield* startAttempt("twitch")
+        const response = yield* callback("twitch", { code: "code-1", state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=exchange-failed",
+        )
+        assert.lengthOf(yield* providers.received, 1)
+        assert.strictEqual((yield* getConnections)[1]?.status, "Not Configured")
+      }),
+    )
+
     it.effect("reports a missing code without touching the Attempt", () =>
       Effect.gen(function* () {
         const { providers, startAttempt, callback } = yield* world

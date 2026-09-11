@@ -141,12 +141,15 @@ const callbackResponse = oauthRoute(({ provider, broadcaster, url }) =>
       callbackUri: callbackUri(url.origin, provider),
       broadcaster,
     }
+    if (url.searchParams.has("error")) {
+      const result = yield* connections.abandonAuthorization(provider, claim)
+      return broadcasterPageRedirect(url.origin, result)
+    }
     const code = url.searchParams.get("code")
-    const result = url.searchParams.has("error")
-      ? yield* connections.abandonAuthorization(provider, claim)
-      : code === null
-        ? "missing-code"
-        : yield* connections.completeAuthorization(provider, claim, code)
+    if (code === null) {
+      return broadcasterPageRedirect(url.origin, "missing-code")
+    }
+    const result = yield* connections.completeAuthorization(provider, claim, code)
     return broadcasterPageRedirect(url.origin, result)
   }),
 )

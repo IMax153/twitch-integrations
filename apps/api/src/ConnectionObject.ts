@@ -22,6 +22,7 @@ import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
 import {
   type AttemptClaim,
   type AttemptRejectionReason,
+  type AuthorizationAttemptRejected,
   ConnectionStore,
 } from "./ConnectionStore.ts"
 import { Provider } from "./Provider.ts"
@@ -100,7 +101,7 @@ export const makeConnectionObject = (
           expiresAt: Option.some(connection.expiresAt),
         }),
       })
-    const rejected = (rejection: { readonly reason: AttemptRejectionReason }) =>
+    const rejected = (rejection: AuthorizationAttemptRejected) =>
       Effect.succeed(rejectionResult[rejection.reason])
     return {
       describe: () => store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary)),
@@ -113,13 +114,18 @@ export const makeConnectionObject = (
             ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
           }),
         ),
+      // A denial after the Attempt expired is still the Broadcaster's denial:
+      // the expired Attempt cannot be used anyway, so the page reports what
+      // they did rather than how long they took.
       abandonAuthorization: (claim) =>
-        flow
-          .abandon(claim)
-          .pipe(
-            Effect.as<BroadcasterResult>("denied"),
-            Effect.catchTag("AuthorizationAttemptRejected", rejected),
+        flow.abandon(claim).pipe(
+          Effect.as<BroadcasterResult>("denied"),
+          Effect.catchTag("AuthorizationAttemptRejected", (rejection) =>
+            rejection.reason === "Expired"
+              ? Effect.succeed("denied" as const)
+              : rejected(rejection),
           ),
+        ),
     }
   })
 

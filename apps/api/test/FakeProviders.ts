@@ -79,7 +79,7 @@ interface FakeProvider {
   readonly scope: (scopes: ReadonlyArray<string>) => unknown
   /** The `Authorization` scheme the identity endpoint expects. */
   readonly identityScheme: string
-  readonly identityBody: (scenario: ProviderScenario, grant: TokenGrant) => unknown
+  readonly identityBody: (account: ConnectedAccount, grant: TokenGrant) => unknown
 }
 
 const basicAuthorization = (clientId: string, clientSecret: string) =>
@@ -98,7 +98,7 @@ const fakeProviders: Record<ProviderName, FakeProvider> = {
     tokenType: "Bearer",
     scope: (scopes) => scopes.join(" "),
     identityScheme: "Bearer",
-    identityBody: ({ account }) => ({ id: account.id, display_name: account.displayName }),
+    identityBody: (account) => ({ id: account.id, display_name: account.displayName }),
   },
   twitch: {
     tokenEndpoint: "https://id.twitch.tv/oauth2/token",
@@ -109,7 +109,7 @@ const fakeProviders: Record<ProviderName, FakeProvider> = {
     tokenType: "bearer",
     scope: (scopes) => scopes,
     identityScheme: "OAuth",
-    identityBody: ({ account }, grant) => ({
+    identityBody: (account, grant) => ({
       client_id: expectedCredentials.twitch.clientId,
       login: account.displayName,
       user_id: account.id,
@@ -167,7 +167,7 @@ const identityResponse = (
   ) {
     return respond(401, { error: "invalid token" })
   }
-  return respond(200, fake.identityBody(scenario, grant))
+  return respond(200, fake.identityBody(scenario.account, grant))
 }
 
 interface Endpoint {
