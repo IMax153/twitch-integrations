@@ -65,7 +65,7 @@ A refresh is scheduled five minutes before the access token expires. Twitch acce
 vp run deploy
 ```
 
-This runs `alchemy deploy --stage production`. The stack has only ever been deployed under the `production` stage; deploying under any other stage name creates a second set of resources. After a deploy:
+This runs `alchemy deploy --stage production`. The stack has only ever been deployed under the `production` stage, and it refuses any other stage name except the `dev_` stages `alchemy dev` uses, so a mistyped stage fails before touching Cloudflare. After a deploy:
 
 1. Open `https://stream.minbadblue.com/setup` in a private window and confirm Cloudflare Access asks you to sign in with GitHub.
 2. Sign in as the Broadcaster, press Connect for each Provider, and complete consent.

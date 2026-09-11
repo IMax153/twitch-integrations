@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 
 import ApiWorker from "@twitch-integrations/api/Worker"
 import { CloudflareAccess, BroadcasterAccess } from "@twitch-integrations/infra/Access"
+import { guardStage } from "@twitch-integrations/infra/Stage"
 import { WebSite } from "@twitch-integrations/infra/Web"
 
 export default Alchemy.Stack(
@@ -13,6 +14,7 @@ export default Alchemy.Stack(
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
+    yield* guardStage
     const access = yield* CloudflareAccess
     const provideAccess = Effect.provideService(BroadcasterAccess, access)
 
