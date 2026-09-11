@@ -1,0 +1,20 @@
+{
+  "name": "@twitch-integrations/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-do": "catalog:",
+    "@twitch-integrations/domain": "workspace:^",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
+    "@effect/vitest": "catalog:"
+  }
+}

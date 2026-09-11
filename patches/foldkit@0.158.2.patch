@@ -1,0 +1,101 @@
+diff --git a/dist/calendar/calendarDate.js b/dist/calendar/calendarDate.js
+index ddc74268fe3365658f6883329fe4654e4668b86d..141616745e10ae693272e37a582f84beabcd6688 100644
+--- a/dist/calendar/calendarDate.js
++++ b/dist/calendar/calendarDate.js
+@@ -178,7 +178,7 @@ const isoPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+  * encode(Calendar.make(2026, 4, 13)) // "2026-04-13"
+  * ```
+  */
+-export const CalendarDateFromIsoString = Schema.String.pipe(Schema.decodeTo(CalendarDate, SchemaTransformation.transformOrFail({
++export const CalendarDateFromIsoString = Schema.String.pipe(Schema.decodeTo(CalendarDate, SchemaTransformation.transformEffect({
+     decode: input => {
+         const match = input.match(isoPattern);
+         if (match === null) {
+diff --git a/dist/schema/index.js b/dist/schema/index.js
+index db2476466e656de8499abccb601aac9c66fcbd01..698411c5305f817db86af400aaa6eef4e6d5c845 100644
+--- a/dist/schema/index.js
++++ b/dist/schema/index.js
+@@ -1,4 +1,4 @@
+-import { Array, Match, Schema, SchemaAST } from 'effect';
++import { Array, Cause, Match, Schema, SchemaAST } from 'effect';
+ const assignPlainProperty = (output, name, value) => {
+     if (name === '__proto__') {
+         Object.defineProperty(output, name, {
+@@ -12,11 +12,20 @@ const assignPlainProperty = (output, name, value) => {
+         output[name] = value;
+     }
+ };
++const runConstructorOperation = (operation) => {
++    try {
++        return operation();
++    }
++    catch (error) {
++        throw new Error('Constructor adapter can only throw schema issues', {
++            cause: Cause.die(error),
++        });
++    }
++};
+ const isDirectlyCopyable = (ast) => {
+     if (ast.checks !== undefined ||
+         ast.encoding !== undefined ||
+-        ast.context !== undefined ||
+-        ast.annotations?.['parseOptions'] !== undefined) {
++        ast.context !== undefined) {
+         return false;
+     }
+     return Match.value(ast).pipe(Match.withReturnType(), Match.tagsExhaustive({
+@@ -39,7 +48,7 @@ const isDirectlyCopyable = (ast) => {
+         TemplateLiteral: ({ parts }) => parts.every(isDirectlyCopyable),
+         Arrays: () => false,
+         Objects: () => false,
+-        Union: ({ mode, types }) => mode !== 'oneOf' && types.every(isDirectlyCopyable),
++        Union: ({ options, types }) => options?.mode !== 'oneOf' && types.every(isDirectlyCopyable),
+         Suspend: () => false,
+     }));
+ };
+@@ -70,24 +79,20 @@ const makeCallable = (tag, fields) => {
+             }
+             const output = {};
+             for (const name of propertyNames) {
+-                const descriptor = Object.getOwnPropertyDescriptor(input, name);
+-                if (name !== '_tag' &&
+-                    descriptor === undefined &&
+-                    Reflect.has(input, name)) {
+-                    return make(value);
+-                }
+-                if (descriptor !== undefined && !('value' in descriptor)) {
+-                    return make(value);
+-                }
+-                const inputValue = descriptor === undefined ? undefined : input[name];
++                const inputValue = runConstructorOperation(() => {
++                    const hasProperty = name === '__proto__'
++                        ? Object.hasOwn(input, name)
++                        : Reflect.has(input, name);
++                    return hasProperty ? input[name] : undefined;
++                });
+                 if (name === '_tag') {
+                     if (inputValue !== undefined && inputValue !== tag) {
+                         return make(value);
+                     }
+-                    assignPlainProperty(output, name, tag);
++                    runConstructorOperation(() => assignPlainProperty(output, name, tag));
+                 }
+                 else {
+-                    assignPlainProperty(output, name, inputValue);
++                    runConstructorOperation(() => assignPlainProperty(output, name, inputValue));
+                 }
+             }
+             return output;
+diff --git a/dist/url/index.js b/dist/url/index.js
+index c23994e69f79d3e31f18bbdee48543343ef349e8..f3ed6ab61ab8d01547c287ffc24a383c730dad9b 100644
+--- a/dist/url/index.js
++++ b/dist/url/index.js
+@@ -17,7 +17,7 @@ const LocationAndHref = Schema.Struct({
+         port: Schema.String,
+     }),
+ });
+-const LocationAndHrefFromString = Schema.String.pipe(Schema.decodeTo(LocationAndHref, SchemaTransformation.transformOrFail({
++const LocationAndHrefFromString = Schema.String.pipe(Schema.decodeTo(LocationAndHref, SchemaTransformation.transformEffect({
+     decode: urlString => Effect.try({
+         try: () => {
+             const url = new URL(urlString);

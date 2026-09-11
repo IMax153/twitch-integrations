@@ -1,4 +1,82 @@
-ignoredBuiltDependencies:
-  - '@parcel/watcher'
-  - esbuild
-  - msgpackr-extract
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+catalogMode: prefer
+
+catalog:
+  "@effect/platform-node": 4.0.0-rc.113
+  "@effect/sql-sqlite-do": 4.0.0-rc.113
+  "@effect/sql-sqlite-node": 4.0.0-rc.113
+  "@effect/tsgo": ^0.38.0
+  "@effect/vitest": 4.0.0-rc.113
+  "@foldkit/oxlint-plugin": ^0.12.0
+  "@foldkit/vite-plugin": 0.20.2
+  "@types/node": ^24.13.3
+  alchemy: 2.0.0-beta.77
+  effect: 4.0.0-rc.113
+  foldkit: 0.158.2
+  happy-dom: ^20.11.13
+  typescript: ^7.0.2
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  vite-plus: 0.3.0
+  vitest: 4.1.11
+
+overrides:
+  effect: "catalog:"
+  vite: "catalog:"
+  vitest: "catalog:"
+
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
+
+allowBuilds:
+  esbuild: false
+  workerd: true
+
+minimumReleaseAgeExclude:
+  - "@effect/sql-sqlite-do@4.0.0-rc.113"
+  - "@effect/sql-sqlite-node@4.0.0-rc.113"
+  - "@effect/vitest@4.0.0-rc.113"
+  - foldkit@0.158.2
+  - "@foldkit/vite-plugin@0.20.2"
+  - effect@4.0.0-rc.113
+  - "@aws-sdk/core@3.978.0"
+  - "@aws-sdk/credential-provider-env@3.972.71"
+  - "@aws-sdk/credential-provider-http@3.972.73"
+  - "@aws-sdk/credential-provider-ini@3.973.16"
+  - "@aws-sdk/credential-provider-login@3.972.78"
+  - "@aws-sdk/credential-provider-web-identity@3.972.77"
+  - "@aws-sdk/token-providers@3.1129.0"
+  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.77"
+  - "@alchemy.run/floci@2.0.0-beta.77"
+  - "@alchemy.run/node-utils@2.0.0-beta.77"
+  - "@distilled.cloud/aws@1.0.0-rc.9"
+  - "@distilled.cloud/axiom@1.0.0-rc.9"
+  - "@distilled.cloud/cloudflare@1.0.0-rc.9"
+  - "@distilled.cloud/core@1.0.0-rc.9"
+  - "@distilled.cloud/fly-io@1.0.0-rc.9"
+  - "@distilled.cloud/hetzner@1.0.0-rc.9"
+  - "@distilled.cloud/neon@1.0.0-rc.9"
+  - "@distilled.cloud/planetscale@1.0.0-rc.9"
+  - "@distilled.cloud/railway@1.0.0-rc.9"
+  - alchemy@2.0.0-beta.77
+  - "@effect/platform-node-shared@4.0.0-rc.113"
+  - "@effect/platform-node@4.0.0-rc.113"
+
+patchedDependencies:
+  "@alchemy.run/cloudflare-runtime@2.0.0-beta.77": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.77.patch
+  "@distilled.cloud/aws@1.0.0-rc.9": patches/@distilled.cloud__aws@1.0.0-rc.9.patch
+  "@distilled.cloud/axiom@1.0.0-rc.9": patches/@distilled.cloud__axiom@1.0.0-rc.9.patch
+  "@distilled.cloud/cloudflare@1.0.0-rc.9": patches/@distilled.cloud__cloudflare@1.0.0-rc.9.patch
+  "@distilled.cloud/core@1.0.0-rc.9": patches/@distilled.cloud__core@1.0.0-rc.9.patch
+  "@distilled.cloud/fly-io@1.0.0-rc.9": patches/@distilled.cloud__fly-io@1.0.0-rc.9.patch
+  "@distilled.cloud/hetzner@1.0.0-rc.9": patches/@distilled.cloud__hetzner@1.0.0-rc.9.patch
+  "@distilled.cloud/planetscale@1.0.0-rc.9": patches/@distilled.cloud__planetscale@1.0.0-rc.9.patch
+  "alchemy@2.0.0-beta.77": patches/alchemy@2.0.0-beta.77.patch
+  "@distilled.cloud/railway@1.0.0-rc.9": patches/@distilled.cloud__railway@1.0.0-rc.9.patch
+  foldkit@0.158.2: patches/foldkit@0.158.2.patch
