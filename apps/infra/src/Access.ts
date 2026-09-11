@@ -45,7 +45,11 @@ export const CloudflareAccess = Effect.gen(function* () {
     require: [{ loginMethod: githubIdp.identityProviderId }],
   })
 
-  return yield* Cloudflare.Access.Application("OperatorAccess", {
+  // A hostname-scoped application cannot be converted in place: Cloudflare
+  // keeps its `domain` and rejects destinations that omit it. The Worker-scoped
+  // application therefore carries its own logical id, and the first deploy
+  // replaces the old one.
+  return yield* Cloudflare.Access.Application("OperatorWorkersAccess", {
     type: "self_hosted",
     name: "Twitch Integrations",
     sessionDuration: "1h",

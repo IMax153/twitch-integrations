@@ -32,13 +32,13 @@ release. Add a tool name to select part of the graph. For example, run
 
 Read the matching documents before starting each kind of work. Load additional documents as the task expands.
 
-| When working on                                              | Read                                                                                                                                                           |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exploring the codebase or changing domain concepts           | [Domain docs](docs/agents/domain.md)                                                                                                                           |
-| Writing, changing, or reviewing tests; deciding what to test | [Testing](docs/agents/testing.md)                                                                                                                              |
-| Defining, changing, or reviewing Effect Schemas              | [Schemas](docs/agents/schemas.md)                                                                                                                              |
-| Creating, fetching, or updating issues                       | [Issue tracker](docs/agents/issue-tracker.md)                                                                                                                  |
-| Triaging issues                                              | [Triage labels](docs/agents/triage-labels.md)                                                                                                                  |
+| When working on                                              | Read                                                                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Exploring the codebase or changing domain concepts           | [Domain docs](docs/agents/domain.md)                                                                                                                               |
+| Writing, changing, or reviewing tests; deciding what to test | [Testing](docs/agents/testing.md)                                                                                                                                  |
+| Defining, changing, or reviewing Effect Schemas              | [Schemas](docs/agents/schemas.md)                                                                                                                                  |
+| Creating, fetching, or updating issues                       | [Issue tracker](docs/agents/issue-tracker.md)                                                                                                                      |
+| Triaging issues                                              | [Triage labels](docs/agents/triage-labels.md)                                                                                                                      |
 | Working on the Operator Page in `apps/web` (Foldkit)         | The `foldkit` skill, and `generate-program` or `audit-program` for its architecture and conventions; [ADR 0002](docs/adr/0002-two-workers-on-one-custom-domain.md) |
 
 Keep rules and patterns in focused documents under `docs/agents/`. When adding a topic, add a pointer here with a concrete condition for reading it.
