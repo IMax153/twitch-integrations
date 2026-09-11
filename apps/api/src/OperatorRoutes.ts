@@ -2,10 +2,12 @@ import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { Connections } from "./Connections.ts"
 
 /**
  * Path prefixes that must carry an Access context. Cloudflare Access gates
@@ -22,11 +24,18 @@ const isOperatorPath = (path: string): boolean =>
 
 const connectionSummaries = HttpServerResponse.schemaJson(Schema.Array(ConnectionSummary))
 
-const connectionsResponse = connectionSummaries(
-  ProviderName.literals.map((provider) => ({ provider, status: "Not Configured" as const })),
-)
+const connectionsResponse = Effect.gen(function* () {
+  const connections = yield* Connections
+  const summaries = yield* Effect.forEach(ProviderName.literals, connections.describe)
+  return yield* connectionSummaries(summaries)
+})
 
-const routes = HttpRouter.add("GET", "/setup/api/connections", connectionsResponse)
+// Route handlers run per request, so their services come from the router,
+// not from the handler's build context. This hands the routes whatever
+// `Connections` the surrounding Worker or test harness supplies.
+const routes = HttpRouter.add("GET", "/setup/api/connections", connectionsResponse).pipe(
+  HttpRouter.provideRequest(Layer.effect(Connections)(Connections)),
+)
 
 const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
 

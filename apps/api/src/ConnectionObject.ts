@@ -1,0 +1,71 @@
+import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
+import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import * as Cloudflare from "alchemy/Cloudflare"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
+import { ConnectionStore } from "./ConnectionStore.ts"
+
+/**
+ * The RPC surface one Provider's Connection object exposes to the Worker. A
+ * type alias rather than an interface so it satisfies Alchemy's RPC index
+ * signature. Every member is a method: Alchemy's stub turns each property
+ * access into a call, so a bare Effect member would not survive the RPC.
+ */
+export type ConnectionObjectShape = {
+  /** What the Operator Page shows for this Provider. */
+  // oxlint-disable-next-line effecttsgo/lazy-effect
+  readonly describe: () => Effect.Effect<ConnectionSummary>
+}
+
+/**
+ * The object's behavior over its store, independent of Durable Object
+ * hosting: production wraps it in the class below, tests build it directly
+ * over an in-memory store.
+ */
+export const makeConnectionObject = (
+  provider: ProviderName,
+): Effect.Effect<ConnectionObjectShape, never, ConnectionStore> =>
+  Effect.gen(function* () {
+    const store = yield* ConnectionStore
+    return {
+      describe: () =>
+        Effect.map(
+          store.readConnection,
+          Option.match({
+            onNone: () => ({ provider, status: "Not Configured" as const }),
+            onSome: (connection) => ({ provider, status: connection.status }),
+          }),
+        ),
+    }
+  })
+
+const decodeProviderName = Schema.decodeUnknownEffect(ProviderName)
+
+/**
+ * One Durable Object instance per Provider, addressed by Provider name. The
+ * object hosts the store over its own SQLite storage, so each Provider's
+ * Connection and Attempts live in their own database.
+ */
+export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>()(
+  "ConnectionObject",
+  Effect.map(Cloudflare.DurableObjectState, (state) =>
+    Effect.gen(function* () {
+      // The object is only ever reached through `getByName(provider)`, so any
+      // other name is a programming error rather than a request to refuse.
+      const provider = yield* decodeProviderName(state.id.name).pipe(Effect.orDie)
+      // The store lives as long as this in-memory instance. Its scope is
+      // never closed on purpose: the adapter holds no finalizers, and workerd
+      // evicts the whole isolate rather than signalling the instance.
+      const instanceScope = yield* Scope.make()
+      const store = yield* Layer.buildWithScope(
+        ConnectionStore.layer.pipe(Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw }))),
+        instanceScope,
+      )
+      return yield* makeConnectionObject(provider).pipe(Effect.provide(store))
+    }),
+  ),
+) {}

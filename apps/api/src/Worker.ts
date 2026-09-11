@@ -2,6 +2,7 @@ import { OperatorAccess, devOperatorAccess } from "@twitch-integrations/infra/Ac
 import { operatorHostname, operatorRoute, zoneName } from "@twitch-integrations/infra/Domain"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
+import { Connections } from "./Connections.ts"
 import { OperatorHttp } from "./OperatorRoutes.ts"
 
 /** The port the API Worker listens on under `alchemy dev`; the web dev server proxies to it. */
@@ -27,7 +28,7 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     }
   }),
   Effect.gen(function* () {
-    const fetch = yield* OperatorHttp
+    const fetch = yield* OperatorHttp.pipe(Effect.provide(Connections.live))
     return { fetch }
   }),
 ) {}
