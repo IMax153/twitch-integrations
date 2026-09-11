@@ -83,15 +83,16 @@ const fakeCredentials = Layer.succeed(ProviderCredentials, {
 
 /**
  * One object's services over a fresh in-memory database, playing one Durable
- * Object's storage, and the fake Credentials.
+ * Object's storage, the fake Credentials, and the `HttpClient` routed to the
+ * fake Providers.
  */
-const inMemoryObject = (provider: ProviderName, providers: Layer.Layer<HttpClient.HttpClient>) =>
+const inMemoryObject = (provider: ProviderName, httpClient: Layer.Layer<HttpClient.HttpClient>) =>
   Layer.build(
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
       Layer.provide(fakeCredentials),
       Layer.provide(NodeCrypto.layer),
-      Layer.provide(providers),
+      Layer.provide(httpClient),
     ),
   )
 

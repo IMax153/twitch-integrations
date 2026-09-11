@@ -60,86 +60,120 @@ const decodeForm = (request: HttpClientRequest.HttpClientRequest): Record<string
     ? Object.fromEntries(new URLSearchParams(new TextDecoder().decode(request.body.body)))
     : {}
 
+/** How one fake Provider differs from the other on the wire. */
+interface FakeProvider {
+  readonly tokenEndpoint: string
+  readonly identityEndpoint: string
+  /** Whether a token request carries the Credentials the way this Provider expects. */
+  readonly authenticated: (received: ReceivedRequest) => boolean
+  readonly tokenType: string
+  /** How this Provider reports granted scopes in a token response. */
+  readonly scope: (scopes: ReadonlyArray<string>) => unknown
+  /** The `Authorization` scheme the identity endpoint expects. */
+  readonly identityScheme: string
+  readonly identityBody: (scenario: ProviderScenario) => unknown
+}
+
 const basicAuthorization = (clientId: string, clientSecret: string) =>
   `Basic ${btoa(`${clientId}:${clientSecret}`)}`
 
+const fakeProviders: Record<ProviderName, FakeProvider> = {
+  spotify: {
+    tokenEndpoint: "https://accounts.spotify.com/api/token",
+    identityEndpoint: "https://api.spotify.com/v1/me",
+    authenticated: (received) =>
+      received.headers["authorization"] ===
+      basicAuthorization(
+        expectedCredentials.spotify.clientId,
+        expectedCredentials.spotify.clientSecret,
+      ),
+    tokenType: "Bearer",
+    scope: (scopes) => scopes.join(" "),
+    identityScheme: "Bearer",
+    identityBody: ({ account }) => ({ id: account.id, display_name: account.displayName }),
+  },
+  twitch: {
+    tokenEndpoint: "https://id.twitch.tv/oauth2/token",
+    identityEndpoint: "https://id.twitch.tv/oauth2/validate",
+    authenticated: (received) =>
+      received.form["client_id"] === expectedCredentials.twitch.clientId &&
+      received.form["client_secret"] === expectedCredentials.twitch.clientSecret,
+    tokenType: "bearer",
+    scope: (scopes) => scopes,
+    identityScheme: "OAuth",
+    identityBody: ({ account, grant }) => ({
+      client_id: expectedCredentials.twitch.clientId,
+      login: account.displayName,
+      user_id: account.id,
+      scopes: Option.getOrElse(grant.scopes, () => []),
+      expires_in: grant.expiresIn,
+    }),
+  },
+}
+
 /** The token endpoint: checks the client authentication the Provider expects, then grants. */
 const tokenResponse = (
-  provider: ProviderName,
+  fake: FakeProvider,
   scenario: ProviderScenario | undefined,
   received: ReceivedRequest,
 ): FakeResponse => {
-  const expected = expectedCredentials[provider]
-  const authenticated =
-    provider === "spotify"
-      ? received.headers["authorization"] ===
-        basicAuthorization(expected.clientId, expected.clientSecret)
-      : received.form["client_id"] === expected.clientId &&
-        received.form["client_secret"] === expected.clientSecret
-  if (!authenticated) {
+  if (!fake.authenticated(received)) {
     return respond(401, { error: "invalid_client" })
   }
   if (scenario === undefined) {
     return respond(500, { error: "no scenario set" })
   }
   const { grant } = scenario
-  const scopes = Option.getOrUndefined(grant.scopes)
   return respond(200, {
     access_token: grant.accessToken,
-    token_type: provider === "spotify" ? "Bearer" : "bearer",
+    token_type: fake.tokenType,
     expires_in: grant.expiresIn,
     refresh_token: Option.getOrUndefined(grant.refreshToken),
-    // Spotify reports scopes space-separated, Twitch as an array.
-    scope: scopes === undefined ? undefined : provider === "spotify" ? scopes.join(" ") : scopes,
+    scope: Option.map(grant.scopes, fake.scope).pipe(Option.getOrUndefined),
   })
 }
 
 /** The identity endpoint: requires the granted access token in the Provider's own header style. */
 const identityResponse = (
-  provider: ProviderName,
+  fake: FakeProvider,
   scenario: ProviderScenario | undefined,
   received: ReceivedRequest,
 ): FakeResponse => {
   if (scenario === undefined) {
     return respond(500, { error: "no scenario set" })
   }
-  const scheme = provider === "spotify" ? "Bearer" : "OAuth"
-  if (received.headers["authorization"] !== `${scheme} ${scenario.grant.accessToken}`) {
+  if (
+    received.headers["authorization"] !== `${fake.identityScheme} ${scenario.grant.accessToken}`
+  ) {
     return respond(401, { error: "invalid token" })
   }
-  const { account } = scenario
-  return provider === "spotify"
-    ? respond(200, { id: account.id, display_name: account.displayName })
-    : respond(200, {
-        client_id: expectedCredentials.twitch.clientId,
-        login: account.displayName,
-        user_id: account.id,
-        scopes: Option.getOrElse(scenario.grant.scopes, () => []),
-        expires_in: scenario.grant.expiresIn,
-      })
+  return respond(200, fake.identityBody(scenario))
 }
 
-type Endpoint = (scenario: ProviderScenario | undefined, received: ReceivedRequest) => FakeResponse
-
-/** The fake endpoints, keyed by the origin and path the real Providers use. */
-const endpoints: Record<string, { provider: ProviderName; handle: Endpoint }> = {
-  "POST https://accounts.spotify.com/api/token": {
-    provider: "spotify",
-    handle: (scenario, received) => tokenResponse("spotify", scenario, received),
-  },
-  "GET https://api.spotify.com/v1/me": {
-    provider: "spotify",
-    handle: (scenario, received) => identityResponse("spotify", scenario, received),
-  },
-  "POST https://id.twitch.tv/oauth2/token": {
-    provider: "twitch",
-    handle: (scenario, received) => tokenResponse("twitch", scenario, received),
-  },
-  "GET https://id.twitch.tv/oauth2/validate": {
-    provider: "twitch",
-    handle: (scenario, received) => identityResponse("twitch", scenario, received),
-  },
+interface Endpoint {
+  readonly provider: ProviderName
+  readonly handle: (
+    scenario: ProviderScenario | undefined,
+    received: ReceivedRequest,
+  ) => FakeResponse
 }
+
+/** The fake endpoints, keyed by method, origin, and path as the real Providers expose them. */
+const endpoints: Record<string, Endpoint> = Object.fromEntries(
+  (Object.keys(fakeProviders) as ReadonlyArray<ProviderName>).flatMap((provider) => {
+    const fake = fakeProviders[provider]
+    return [
+      [
+        `POST ${fake.tokenEndpoint}`,
+        { provider, handle: (scenario, received) => tokenResponse(fake, scenario, received) },
+      ],
+      [
+        `GET ${fake.identityEndpoint}`,
+        { provider, handle: (scenario, received) => identityResponse(fake, scenario, received) },
+      ],
+    ] satisfies ReadonlyArray<readonly [string, Endpoint]>
+  }),
+)
 
 const make = Effect.gen(function* () {
   const scenarios = yield* Ref.make<Scenarios>({})

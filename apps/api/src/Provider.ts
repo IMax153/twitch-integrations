@@ -51,16 +51,42 @@ export interface TokenResponse {
 
 export type ProviderOperation = "exchange" | "identity"
 
+/** Why a request to the Provider did not produce what it should have. */
+export type ProviderFailureReason =
+  /** The request never got an answer. */
+  | { readonly _tag: "Transport" }
+  /** The Provider answered with an error status. */
+  | { readonly _tag: "Status"; readonly status: number }
+  /** The Provider answered, but the body was not what it should be. */
+  | { readonly _tag: "Body" }
+
 /**
- * A request to the Provider did not produce what it should have: the
- * transport failed, the Provider answered with an error status, or its body
- * did not decode.
+ * A request to the Provider failed. Carries only what the failure was, never
+ * the underlying request or response: those hold the Credentials and access
+ * token, and this error may end up in a log.
  */
 export class ProviderRequestFailed extends Data.TaggedError("ProviderRequestFailed")<{
   readonly provider: ProviderName
   readonly operation: ProviderOperation
-  readonly cause: HttpClientError.HttpClientError | Schema.SchemaError
+  readonly reason: ProviderFailureReason
 }> {}
+
+const failureReason = (
+  cause: HttpClientError.HttpClientError | Schema.SchemaError,
+): ProviderFailureReason => {
+  if (cause._tag === "SchemaError") {
+    return { _tag: "Body" }
+  }
+  switch (cause.reason._tag) {
+    case "StatusCodeError":
+      return { _tag: "Status", status: cause.reason.response.status }
+    case "DecodeError":
+    case "EmptyBodyError":
+      return { _tag: "Body" }
+    default:
+      return { _tag: "Transport" }
+  }
+}
 
 export interface ProviderService extends ProviderDescription {
   readonly credentials: Credentials
@@ -166,7 +192,7 @@ const make = (
     const failed =
       (operation: ProviderOperation) =>
       (cause: HttpClientError.HttpClientError | Schema.SchemaError): ProviderRequestFailed =>
-        new ProviderRequestFailed({ provider: name, operation, cause })
+        new ProviderRequestFailed({ provider: name, operation, reason: failureReason(cause) })
 
     /** Applies the Provider's client authentication style to a token request. */
     const authenticate = (

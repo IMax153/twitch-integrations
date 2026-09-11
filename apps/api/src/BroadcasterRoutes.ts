@@ -20,6 +20,9 @@ import { Connections } from "./Connections.ts"
  */
 const broadcasterPathPrefixes = ["/setup", "/oauth"]
 
+/** The Broadcaster Page, where every callback outcome sends the browser. */
+const broadcasterPagePath = broadcasterPathPrefixes[0]
+
 const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 
 const isBroadcasterPath = (path: string): boolean =>
@@ -43,8 +46,13 @@ const unknownProvider = HttpServerResponse.text("Unknown Provider", { status: 40
 
 const isProviderName = Schema.is(ProviderName)
 
-/** The fixed path the Provider redirects back to, relative to the request's origin. */
-const callbackPath = (provider: ProviderName) => `/oauth/${provider}/callback`
+/**
+ * The callback URI the Provider redirects back to: the fixed callback path on
+ * the origin the Broadcaster is using, so the same code works on localhost
+ * and on the deployed hostname.
+ */
+const callbackUri = (origin: string, provider: ProviderName) =>
+  new URL(`/oauth/${provider}/callback`, origin).toString()
 
 /**
  * The Broadcaster behind the request, or none when Access reports an identity
@@ -65,26 +73,50 @@ const readBroadcaster: Effect.Effect<
     : Option.some({ userUuid: identity.user_uuid, email: identity.email })
 }).pipe(Effect.orDie)
 
+/** What every OAuth route needs before it can act: the Provider, the Broadcaster, and the request URL. */
+interface OAuthRequest {
+  readonly provider: ProviderName
+  readonly broadcaster: BroadcasterIdentity
+  readonly url: URL
+}
+
+/**
+ * Runs an OAuth route once its Provider and Broadcaster resolve, answering
+ * 404 for an unknown Provider and 403 for an incomplete Access identity.
+ */
+const oauthRoute = <E, R>(
+  respond: (request: OAuthRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  Effect.gen(function* () {
+    const { provider } = yield* HttpRouter.params
+    if (!isProviderName(provider)) {
+      return unknownProvider
+    }
+    const broadcaster = yield* readBroadcaster
+    if (Option.isNone(broadcaster)) {
+      return accessRequired
+    }
+    const request = yield* HttpServerRequest.HttpServerRequest
+    return yield* respond({
+      provider,
+      broadcaster: broadcaster.value,
+      url: new URL(request.originalUrl),
+    })
+  })
+
 // NOTE: 303 rather than 302, so the browser follows the form's POST with a
 // GET at the Provider.
-const authorizeResponse = Effect.gen(function* () {
-  const { provider } = yield* HttpRouter.params
-  if (!isProviderName(provider)) {
-    return unknownProvider
-  }
-  const broadcaster = yield* readBroadcaster
-  if (Option.isNone(broadcaster)) {
-    return accessRequired
-  }
-  const request = yield* HttpServerRequest.HttpServerRequest
-  const callbackUri = new URL(callbackPath(provider), request.originalUrl).toString()
-  const connections = yield* Connections
-  const consentUrl = yield* connections.startAuthorization(provider, broadcaster.value, callbackUri)
-  return HttpServerResponse.redirect(consentUrl, { status: 303 })
-})
-
-/** The Broadcaster Page, where every callback outcome sends the browser. */
-const broadcasterPagePath = "/setup"
+const authorizeResponse = oauthRoute(({ provider, broadcaster, url }) =>
+  Effect.gen(function* () {
+    const connections = yield* Connections
+    const consentUrl = yield* connections.startAuthorization(
+      provider,
+      broadcaster,
+      callbackUri(url.origin, provider),
+    )
+    return HttpServerResponse.redirect(consentUrl, { status: 303 })
+  }),
+)
 
 /** A redirect to the Broadcaster Page carrying the outcome as its result parameter. */
 const broadcasterPageRedirect = (origin: string, result: BroadcasterResult) => {
@@ -93,34 +125,26 @@ const broadcasterPageRedirect = (origin: string, result: BroadcasterResult) => {
   return HttpServerResponse.redirect(page.toString(), { status: 303 })
 }
 
-const callbackResponse = Effect.gen(function* () {
-  const { provider } = yield* HttpRouter.params
-  if (!isProviderName(provider)) {
-    return unknownProvider
-  }
-  const broadcaster = yield* readBroadcaster
-  if (Option.isNone(broadcaster)) {
-    return accessRequired
-  }
-  const request = yield* HttpServerRequest.HttpServerRequest
-  const url = new URL(request.originalUrl)
-  const code = url.searchParams.get("code")
-  if (code === null) {
-    return broadcasterPageRedirect(url.origin, "missing-code")
-  }
-  const connections = yield* Connections
-  const result = yield* connections.completeAuthorization(
-    provider,
-    {
-      state: url.searchParams.get("state") ?? "",
+const callbackResponse = oauthRoute(({ provider, broadcaster, url }) =>
+  Effect.gen(function* () {
+    const code = url.searchParams.get("code")
+    if (code === null) {
+      return broadcasterPageRedirect(url.origin, "missing-code")
+    }
+    const connections = yield* Connections
+    const result = yield* connections.completeAuthorization(
       provider,
-      callbackUri: new URL(callbackPath(provider), url.origin).toString(),
-      broadcaster: broadcaster.value,
-    },
-    code,
-  )
-  return broadcasterPageRedirect(url.origin, result)
-})
+      {
+        state: url.searchParams.get("state") ?? "",
+        provider,
+        callbackUri: callbackUri(url.origin, provider),
+        broadcaster,
+      },
+      code,
+    )
+    return broadcasterPageRedirect(url.origin, result)
+  }),
+)
 
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
