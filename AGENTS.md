@@ -27,3 +27,17 @@ release. Add a tool name to select part of the graph. For example, run
 - [ ] If setup, runtime, or package-manager behavior looks wrong, run `vp env doctor` and include its output when asking for help.
 
 <!--VITE PLUS END-->
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in local Markdown under `.scratch/<feature>/`. Read `docs/agents/issue-tracker.md` before creating, fetching, or updating issues.
+
+### Triage labels
+
+Use the five default triage roles. Read `docs/agents/triage-labels.md` before triaging issues.
+
+### Domain docs
+
+Use single-context domain docs. Read `docs/agents/domain.md` before exploring the codebase.

@@ -4,22 +4,22 @@
     "alchemy": {
       "repository": "alchemy-run/alchemy",
       "branch": "main",
-      "description": "Use for understanding how to use Alchemy"
+      "description": "Use for understanding how to use Alchemy",
     },
     "cf-twitch": {
       "repository": "https://github.com/dmmulroy/cf-twitch",
       "branch": "refactor/effect-alchemy",
-      "description": "Use to understand Dillon Mullroy's Twitch Integrations"
+      "description": "Use to understand Dillon Mullroy's Twitch Integrations",
     },
     "effect": {
       "repository": "Effect-TS/effect",
       "branch": "eff-698-cloudflare-cluster",
-      "description": "Use for understanding how to use Effect. Always read the LLMS.md."
+      "description": "Use for understanding how to use Effect. Always read the LLMS.md.",
     },
     "foldkit": {
       "repository": "foldkit/foldkit",
       "branch": "main",
-      "description": "Use for understanding how to use Foldkit"
-    }
-  }
+      "description": "Use for understanding how to use Foldkit",
+    },
+  },
 }
