@@ -21,7 +21,7 @@ const devOperatorUserUuid = "00000000-0000-4000-8000-000000000001"
 export const devOperatorAccess = {
   aud: "dev",
   identity: {
-    email: Config.String("TWITCH_CHANNEL_OWNER_EMAIL"),
+    email: Config.String("TWITCH_BROADCASTER_EMAIL"),
     user_uuid: devOperatorUserUuid,
   },
 }
@@ -41,7 +41,7 @@ export const CloudflareAccess = Effect.gen(function* () {
   const allowChannelOwner = yield* Cloudflare.Access.Policy("AllowTwitchChannelOwner", {
     name: "Allow Twitch channel owner",
     decision: "allow",
-    include: [{ email: yield* Config.String("TWITCH_CHANNEL_OWNER_EMAIL") }],
+    include: [{ email: yield* Config.String("TWITCH_BROADCASTER_EMAIL") }],
     require: [{ loginMethod: githubIdp.identityProviderId }],
   })
 

@@ -82,8 +82,8 @@ An Operator Page at `/setup`, reachable only through the existing Cloudflare Acc
 - One Durable Object class, one instance per Provider, addressed by Provider name. It is declared with Alchemy's Effect-native Durable Object constructor and yielded in the Worker's init so the binding is registered automatically.
 - The Durable Object hosts the entire layer graph. It exposes RPC methods to start an Authorization Attempt, complete one, get a valid access token, and describe the Connection for the Operator Page. It also owns the alarm handler.
 - The api Worker is thin. It routes HTTP with Effect's `HttpRouter`, reads the Access identity, answers the page's JSON requests, and calls the Durable Object through a Worker-side Connections service that wraps the namespace RPC.
-- Provider Credentials are read as `Config.Redacted` in the Worker init, named `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `TWITCH_CLIENT_ID`, and `TWITCH_CLIENT_SECRET`, and forwarded to the Durable Object. The Access application already reads `TWITCH_CHANNEL_OWNER_EMAIL`.
-- Local development sets the api Worker's dev Access option with the channel owner email and a fixed dev `user_uuid`, so the Access context resolves under `alchemy dev`. The web dev server proxies `/setup/api` and `/oauth` to the api Worker on port 1337.
+- Provider Credentials are read as `Config.Redacted` in the Worker init, named `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `TWITCH_CLIENT_ID`, and `TWITCH_CLIENT_SECRET`, and forwarded to the Durable Object. The Access application already reads `TWITCH_BROADCASTER_EMAIL`.
+- Local development sets the api Worker's dev Access option with the broadcaster email and a fixed dev `user_uuid`, so the Access context resolves under `alchemy dev`. The web dev server proxies `/setup/api` and `/oauth` to the api Worker on port 1337.
 
 ### Services inside the Durable Object
 
