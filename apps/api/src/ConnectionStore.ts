@@ -28,39 +28,11 @@ export interface ConnectionStoreService {
   readonly consumeAttempt: (claim: AttemptClaim) => Effect.Effect<boolean>
 }
 
-/**
- * Persistence for one Provider's Connection and Authorization Attempts,
- * written against the generic `SqlClient` so the same code runs over Durable
- * Object storage in production and over an in-memory database in tests.
- *
- * Storage failures and malformed rows are defects: nothing above the store
- * can recover from a broken database, and a row that no longer decodes is
- * corruption rather than a condition to handle.
- */
-export class ConnectionStore extends Context.Service<ConnectionStore, ConnectionStoreService>()(
-  "@twitch-integrations/api/ConnectionStore",
-) {
-  static readonly layer: Layer.Layer<ConnectionStore, never, SqlClient.SqlClient> = Layer.effect(
-    ConnectionStore,
-  )(
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient
-      yield* createTables(sql)
-      return make(sql)
-    }).pipe(Effect.orDie),
-  )
-}
-
 /** The Connection is one Schema-validated JSON document in a single-row table. */
 const ConnectionDocument = Schema.fromJsonString(Connection).annotate({
   identifier: "ConnectionDocument",
 })
-// NOTE: a parse failure is reported without the parse error itself, which
-// would otherwise print the stored document, tokens included, into the logs.
-const decodeDocument = (document: string) =>
-  Schema.decodeEffect(ConnectionDocument)(document).pipe(
-    Effect.catch(() => Effect.die("The stored Connection document no longer decodes")),
-  )
+const decodeDocument = Schema.decodeEffect(ConnectionDocument)
 const encodeDocument = Schema.encodeEffect(ConnectionDocument)
 
 interface ConnectionRow {
@@ -96,53 +68,84 @@ const createTables = (sql: SqlClient.SqlClient) =>
     `
   })
 
-const make = (sql: SqlClient.SqlClient): ConnectionStoreService => ({
-  readConnection: Effect.gen(function* () {
-    const rows = yield* sql<ConnectionRow>`SELECT document FROM connection WHERE id = 1`
-    const row = rows[0]
-    return row === undefined ? Option.none() : Option.some(yield* decodeDocument(row.document))
-  }).pipe(Effect.orDie),
+const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  yield* createTables(sql)
 
-  writeConnection: (connection) =>
-    Effect.gen(function* () {
-      const document = yield* encodeDocument(connection)
-      yield* sql`
-        INSERT INTO connection (id, document) VALUES (1, ${document})
-        ON CONFLICT (id) DO UPDATE SET document = excluded.document
-      `
+  const store: ConnectionStoreService = {
+    readConnection: Effect.gen(function* () {
+      const rows = yield* sql<ConnectionRow>`SELECT document FROM connection WHERE id = 1`
+      const row = rows[0]
+      if (row === undefined) {
+        return Option.none()
+      }
+      // NOTE: the parse error is dropped on purpose: it would print the stored
+      // document, tokens included, into the logs.
+      const connection = yield* decodeDocument(row.document).pipe(
+        Effect.catch(() => Effect.die("The stored Connection document no longer decodes")),
+      )
+      return Option.some(connection)
     }).pipe(Effect.orDie),
 
-  createAttempt: (attempt) =>
-    sql`
-      INSERT INTO authorization_attempt ${sql.insert({
-        state: attempt.state,
-        provider: attempt.provider,
-        callback_uri: attempt.callbackUri,
-        operator_user_uuid: attempt.operator.userUuid,
-        operator_email: attempt.operator.email,
-        created_at: millis(attempt.createdAt),
-        expires_at: millis(attempt.expiresAt),
-        consumed: attempt.consumed ? 1 : 0,
-      })}
-    `.pipe(Effect.asVoid, Effect.orDie),
+    writeConnection: (connection) =>
+      Effect.gen(function* () {
+        const document = yield* encodeDocument(connection)
+        yield* sql`
+          INSERT INTO connection (id, document) VALUES (1, ${document})
+          ON CONFLICT (id) DO UPDATE SET document = excluded.document
+        `
+      }).pipe(Effect.orDie),
 
-  // NOTE: one conditional UPDATE, so a concurrent second callback cannot
-  // consume the same Attempt: SQLite runs the statement atomically and only
-  // the first matches the unconsumed row.
-  consumeAttempt: (claim) =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now
-      const consumed = yield* sql<ConsumedRow>`
-        UPDATE authorization_attempt SET consumed = 1
-        WHERE state = ${claim.state}
-          AND provider = ${claim.provider}
-          AND callback_uri = ${claim.callbackUri}
-          AND operator_user_uuid = ${claim.operator.userUuid}
-          AND operator_email = ${claim.operator.email}
-          AND consumed = 0
-          AND expires_at > ${millis(now)}
-        RETURNING state
-      `
-      return consumed.length > 0
-    }).pipe(Effect.orDie),
+    createAttempt: (attempt) =>
+      sql`
+        INSERT INTO authorization_attempt ${sql.insert({
+          state: attempt.state,
+          provider: attempt.provider,
+          callback_uri: attempt.callbackUri,
+          operator_user_uuid: attempt.operator.userUuid,
+          operator_email: attempt.operator.email,
+          created_at: millis(attempt.createdAt),
+          expires_at: millis(attempt.expiresAt),
+          consumed: attempt.consumed ? 1 : 0,
+        })}
+      `.pipe(Effect.asVoid, Effect.orDie),
+
+    // NOTE: one conditional UPDATE, so a concurrent second callback cannot
+    // consume the same Attempt: SQLite runs the statement atomically and only
+    // the first matches the unconsumed row.
+    consumeAttempt: (claim) =>
+      Effect.gen(function* () {
+        const now = yield* DateTime.now
+        const consumed = yield* sql<ConsumedRow>`
+          UPDATE authorization_attempt SET consumed = 1
+          WHERE state = ${claim.state}
+            AND provider = ${claim.provider}
+            AND callback_uri = ${claim.callbackUri}
+            AND operator_user_uuid = ${claim.operator.userUuid}
+            AND operator_email = ${claim.operator.email}
+            AND consumed = 0
+            AND expires_at > ${millis(now)}
+          RETURNING state
+        `
+        return consumed.length > 0
+      }).pipe(Effect.orDie),
+  }
+  return store
 })
+
+/**
+ * Persistence for one Provider's Connection and Authorization Attempts,
+ * written against the generic `SqlClient` so the same code runs over Durable
+ * Object storage in production and over an in-memory database in tests.
+ *
+ * Storage failures and malformed rows are defects: nothing above the store
+ * can recover from a broken database, and a row that no longer decodes is
+ * corruption rather than a condition to handle.
+ */
+export class ConnectionStore extends Context.Service<ConnectionStore, ConnectionStoreService>()(
+  "@twitch-integrations/api/ConnectionStore",
+) {
+  static readonly layer: Layer.Layer<ConnectionStore, never, SqlClient.SqlClient> = Layer.effect(
+    ConnectionStore,
+  )(Effect.orDie(make))
+}

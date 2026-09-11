@@ -28,7 +28,7 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     }
   }),
   Effect.gen(function* () {
-    const fetch = yield* OperatorHttp.pipe(Effect.provide(Connections.live))
+    const fetch = yield* OperatorHttp.pipe(Effect.provide(Connections.layer))
     return { fetch }
   }),
 ) {}

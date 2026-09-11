@@ -52,8 +52,12 @@ const decodeProviderName = Schema.decodeUnknownEffect(ProviderName)
  */
 export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>()(
   "ConnectionObject",
-  Effect.map(Cloudflare.DurableObjectState, (state) =>
-    Effect.gen(function* () {
+  Effect.gen(function* () {
+    const state = yield* Cloudflare.DurableObjectState
+    // Alchemy's constructor contract: the init Effect returns the Effect that
+    // builds the instance, so the nested Effect here is intended.
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen
+    return Effect.gen(function* () {
       // The object is only ever reached through `getByName(provider)`, so any
       // other name is a programming error rather than a request to refuse.
       const provider = yield* decodeProviderName(state.id.name).pipe(Effect.orDie)
@@ -66,6 +70,6 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
         instanceScope,
       )
       return yield* makeConnectionObject(provider).pipe(Effect.provide(store))
-    }),
-  ),
+    })
+  }),
 ) {}

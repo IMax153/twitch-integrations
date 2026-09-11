@@ -18,7 +18,7 @@ export class Connections extends Context.Service<Connections, ConnectionsService
   "@twitch-integrations/api/Connections",
 ) {
   /** Built in the Worker init, where yielding the class registers the binding. */
-  static readonly live = Layer.effect(Connections)(
+  static readonly layer = Layer.effect(Connections)(
     Effect.map(ConnectionObject, (objects) => ({
       describe: (provider) => objects.getByName(provider).describe(),
     })),
