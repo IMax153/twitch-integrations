@@ -24,6 +24,7 @@ import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AuthorizationFlow } from "./AuthorizationFlow.ts"
 import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
+import { observed } from "./Failure.ts"
 import {
   type AttemptClaim,
   type AttemptRejectionReason,
@@ -135,8 +136,10 @@ export const makeConnectionObject = (
     const rejected = (rejection: AuthorizationAttemptRejected) =>
       Effect.succeed(rejectionResult[rejection.reason])
     return {
-      describe: () => store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary)),
-      startAuthorization: flow.start,
+      describe: () =>
+        store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary), observed),
+      startAuthorization: (broadcaster, callbackUri) =>
+        observed(flow.start(broadcaster, callbackUri)),
       completeAuthorization: (claim, code) =>
         flow.complete(claim, code).pipe(
           Effect.as<BroadcasterResult>("connected"),
@@ -144,6 +147,7 @@ export const makeConnectionObject = (
             AuthorizationAttemptRejected: rejected,
             ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
           }),
+          observed,
         ),
       // A denial after the Attempt expired is still the Broadcaster's denial:
       // the expired Attempt cannot be used anyway, so the page reports what
@@ -156,9 +160,10 @@ export const makeConnectionObject = (
               ? Effect.succeed("denied" as const)
               : rejected(rejection),
           ),
+          observed,
         ),
-      getAccessToken: () => Effect.map(lifecycle.requestAccessToken, Redacted.value),
-      alarm: () => lifecycle.runScheduledRefresh,
+      getAccessToken: () => observed(Effect.map(lifecycle.requestAccessToken, Redacted.value)),
+      alarm: () => observed(lifecycle.runScheduledRefresh),
     }
   })
 
@@ -198,26 +203,28 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
     // Alchemy's constructor contract: the init Effect returns the Effect that
     // builds the instance, so the nested Effect here is intended.
     // oxlint-disable-next-line effecttsgo/return-effect-in-gen
-    return Effect.gen(function* () {
-      // The object is only ever reached through `getByName(provider)`, so any
-      // other name is a programming error rather than a request to refuse.
-      const provider = yield* decodeProviderName(state.id.name).pipe(Effect.orDie)
-      // The store lives as long as this in-memory instance. Its scope is
-      // never closed on purpose: the adapter holds no finalizers, and workerd
-      // evicts the whole isolate rather than signalling the instance.
-      const instanceScope = yield* Scope.make()
-      const services = yield* Layer.buildWithScope(
-        connectionObjectLayer(provider).pipe(
-          Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
-          Layer.provide(ProviderCredentials.layer),
-          Layer.provide(FetchHttpClient.layer),
-          Layer.provide(WebCrypto.layer),
-          Layer.provide(RefreshAlarm.layer),
-          Layer.provide(Layer.succeed(Cloudflare.DurableObjectState, state)),
-        ),
-        instanceScope,
-      )
-      return yield* makeConnectionObject(provider).pipe(Effect.provide(services))
-    })
+    return observed(
+      Effect.gen(function* () {
+        // The object is only ever reached through `getByName(provider)`, so any
+        // other name is a programming error rather than a request to refuse.
+        const provider = yield* decodeProviderName(state.id.name).pipe(Effect.orDie)
+        // The store lives as long as this in-memory instance. Its scope is
+        // never closed on purpose: the adapter holds no finalizers, and workerd
+        // evicts the whole isolate rather than signalling the instance.
+        const instanceScope = yield* Scope.make()
+        const services = yield* Layer.buildWithScope(
+          connectionObjectLayer(provider).pipe(
+            Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
+            Layer.provide(ProviderCredentials.layer),
+            Layer.provide(FetchHttpClient.layer),
+            Layer.provide(WebCrypto.layer),
+            Layer.provide(RefreshAlarm.layer),
+            Layer.provide(Layer.succeed(Cloudflare.DurableObjectState, state)),
+          ),
+          instanceScope,
+        )
+        return yield* makeConnectionObject(provider).pipe(Effect.provide(services))
+      }),
+    )
   }),
 ) {}

@@ -8,6 +8,7 @@ import {
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import { Connections } from "./Connections.ts"
+import { observed } from "./Failure.ts"
 import { BroadcasterHttp } from "./BroadcasterRoutes.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 
@@ -17,18 +18,6 @@ import { ProviderCredentials } from "./ProviderCredentials.ts"
  * than silently moving the Worker away from the proxy target.
  */
 const devPort = 1337
-
-/**
- * A failure reaching the platform is rendered as `[object Object]` when it is
- * not an Error: Effect's `ConfigError` is a plain class, and an object
- * failure arrives over the Durable Object RPC as plain data. Logging it
- * first keeps the cause readable.
- */
-const logFailure = (failure: unknown) =>
-  Effect.logError(
-    "Worker failure",
-    failure instanceof Error ? (failure.stack ?? failure.message) : JSON.stringify(failure),
-  )
 
 /**
  * The API Worker owns the broadcaster hostname as its custom domain, so every
@@ -53,8 +42,8 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     // at plan time each read is bound onto the Worker as a secret, and at
     // runtime it resolves from that binding. The Connection object reads the
     // same names from the bound environment when it starts.
-    yield* ProviderCredentials.config.pipe(Effect.tapError(logFailure))
+    yield* observed(ProviderCredentials.config)
     const fetch = yield* BroadcasterHttp.pipe(Effect.provide(Connections.layer))
-    return { fetch: Effect.tapDefect(fetch, logFailure) }
+    return { fetch: observed(fetch) }
   }),
 ) {}
