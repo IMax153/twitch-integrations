@@ -9,6 +9,12 @@ catalogs:
     '@effect/platform-node':
       specifier: 4.0.0-rc.113
       version: 4.0.0-rc.113
+    '@effect/sql-sqlite-do':
+      specifier: 4.0.0-rc.113
+      version: 4.0.0-rc.113
+    '@effect/sql-sqlite-node':
+      specifier: 4.0.0-rc.113
+      version: 4.0.0-rc.113
     '@effect/tsgo':
       specifier: ^0.38.0
       version: 0.38.0
@@ -88,6 +94,25 @@ importers:
 
   apps/api:
     dependencies:
+      '@effect/sql-sqlite-do':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)
+      '@twitch-integrations/domain':
+        specifier: workspace:^
+        version: link:../../packages/domain
+      alchemy:
+        specifier: 'catalog:'
+        version: 2.0.0-beta.77(patch_hash=f9b30646b628534a43c5f3e47ed6201c9c0354550ee73e55bddf324203676fac)(@effect/platform-node@4.0.0-rc.113(effect@4.0.0-rc.113)(redis@6.2.1))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-rc.113)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
+      effect:
+        specifier: 4.0.0-rc.113
+        version: 4.0.0-rc.113
+    devDependencies:
+      '@effect/sql-sqlite-node':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)
+
+  apps/infra:
+    dependencies:
       alchemy:
         specifier: 'catalog:'
         version: 2.0.0-beta.77(patch_hash=f9b30646b628534a43c5f3e47ed6201c9c0354550ee73e55bddf324203676fac)(@effect/platform-node@4.0.0-rc.113(effect@4.0.0-rc.113)(redis@6.2.1))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-rc.113)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
@@ -95,11 +120,8 @@ importers:
         specifier: 4.0.0-rc.113
         version: 4.0.0-rc.113
 
-  apps/infra:
+  packages/domain:
     dependencies:
-      alchemy:
-        specifier: 'catalog:'
-        version: 2.0.0-beta.77(patch_hash=f9b30646b628534a43c5f3e47ed6201c9c0354550ee73e55bddf324203676fac)(@effect/platform-node@4.0.0-rc.113(effect@4.0.0-rc.113)(redis@6.2.1))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-rc.113)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
       effect:
         specifier: 4.0.0-rc.113
         version: 4.0.0-rc.113
@@ -355,6 +377,16 @@ packages:
 
   '@effect/sql-sqlite-do@4.0.0-rc.112':
     resolution: {integrity: sha512-PewNVasimmhrdxYbNU91O0YlCcalIHOoF0H5XAWXrmzcEQrKM7kVCyb5h0gmJAZjBM4ZgWRvPY0PUOfbNmWchQ==}
+    peerDependencies:
+      effect: 4.0.0-rc.113
+
+  '@effect/sql-sqlite-do@4.0.0-rc.113':
+    resolution: {integrity: sha512-l38VSaq+J8UVMNRsoxdn5XcKh4icp+wXbeXtTukfzr5gSPMgvzxnXj57OUxcC3cGvq03E0E54NYPX5kvh/JyPQ==}
+    peerDependencies:
+      effect: 4.0.0-rc.113
+
+  '@effect/sql-sqlite-node@4.0.0-rc.113':
+    resolution: {integrity: sha512-3O5Qb6LFBhQGJqFXoNzbc4Psf/TaYvFw4QhjjUGtwaYiIubZ62zbKxDG/ihiqQ2LmzE78+AFiUKkB8zTnyTNBg==}
     peerDependencies:
       effect: 4.0.0-rc.113
 
@@ -2798,6 +2830,14 @@ snapshots:
       effect: 4.0.0-rc.113
 
   '@effect/sql-sqlite-do@4.0.0-rc.112(effect@4.0.0-rc.113)':
+    dependencies:
+      effect: 4.0.0-rc.113
+
+  '@effect/sql-sqlite-do@4.0.0-rc.113(effect@4.0.0-rc.113)':
+    dependencies:
+      effect: 4.0.0-rc.113
+
+  '@effect/sql-sqlite-node@4.0.0-rc.113(effect@4.0.0-rc.113)':
     dependencies:
       effect: 4.0.0-rc.113
 

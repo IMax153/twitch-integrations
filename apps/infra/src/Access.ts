@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
 export const CloudflareAccess = Effect.gen(function* () {
-  const worker = yield* Cloudflare.Worker
+  const worker = yield* Cloudflare.Worker.Self
 
   const workersDevDomain = yield* Config.String("CLOUDFLARE_WORKERS_DEV_DOMAIN")
   const clientId = yield* Config.Redacted("CLOUDFLARE_ACCESS_GITHUB_CLIENT_ID")

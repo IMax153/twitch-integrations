@@ -1,0 +1,12 @@
+{
+  "name": "@twitch-integrations/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}

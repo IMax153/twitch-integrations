@@ -28,16 +28,16 @@ release. Add a tool name to select part of the graph. For example, run
 
 <!--VITE PLUS END-->
 
-## Agent skills
+## Task-specific guidance
 
-### Issue tracker
+Read the matching documents before starting each kind of work. Load additional documents as the task expands.
 
-Issues live in local Markdown under `.scratch/<feature>/`. Read `docs/agents/issue-tracker.md` before creating, fetching, or updating issues.
+| When working on                                              | Read                                          |
+| ------------------------------------------------------------ | --------------------------------------------- |
+| Exploring the codebase or changing domain concepts           | [Domain docs](docs/agents/domain.md)          |
+| Writing, changing, or reviewing tests; deciding what to test | [Testing](docs/agents/testing.md)             |
+| Defining, changing, or reviewing Effect Schemas              | [Schemas](docs/agents/schemas.md)             |
+| Creating, fetching, or updating issues                       | [Issue tracker](docs/agents/issue-tracker.md) |
+| Triaging issues                                              | [Triage labels](docs/agents/triage-labels.md) |
 
-### Triage labels
-
-Use the five default triage roles. Read `docs/agents/triage-labels.md` before triaging issues.
-
-### Domain docs
-
-Use single-context domain docs. Read `docs/agents/domain.md` before exploring the codebase.
+Keep rules and patterns in focused documents under `docs/agents/`. When adding a topic, add a pointer here with a concrete condition for reading it.

@@ -12,3 +12,5 @@ The Alchemy patch covers beta.77's current source, generated JavaScript, and bun
 `pnpm-workspace.yaml` registers the patches, and `pnpm-lock.yaml` records their hashes. Run `vp install --frozen-lockfile`, `vp check`, and `vp test` to validate installation and the compatibility regression tests. Rebase or remove these patches when upgrading Alchemy or Effect.
 
 Keep `@effect/platform-node` aligned with Effect at rc.113. The rc.112 platform package calls the removed `FileSystem.Size` constructor and fails when the CLI reads file metadata.
+
+The SQL adapters `@effect/sql-sqlite-do` and `@effect/sql-sqlite-node` are pinned to the workspace Effect release, `4.0.0-rc.113`. Keep both aligned with Effect. Upgrading Effect and Alchemy to their latest releases is outside the scope of the Spotify and Twitch OAuth feature.

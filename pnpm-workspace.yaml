@@ -7,6 +7,8 @@ catalogMode: prefer
 
 catalog:
   "@effect/platform-node": 4.0.0-rc.113
+  "@effect/sql-sqlite-do": 4.0.0-rc.113
+  "@effect/sql-sqlite-node": 4.0.0-rc.113
   "@effect/tsgo": ^0.38.0
   "@foldkit/oxlint-plugin": ^0.12.0
   "@types/node": ^24.13.3
@@ -33,6 +35,8 @@ allowBuilds:
   workerd: true
 
 minimumReleaseAgeExclude:
+  - "@effect/sql-sqlite-do@4.0.0-rc.113"
+  - "@effect/sql-sqlite-node@4.0.0-rc.113"
   - effect@4.0.0-rc.113
   - "@aws-sdk/core@3.978.0"
   - "@aws-sdk/credential-provider-env@3.972.71"
