@@ -1,7 +1,8 @@
 import type { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
-import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import { providerLabels } from "@twitch-integrations/domain/ProviderName"
+import type { RefreshError } from "@twitch-integrations/domain/RefreshError"
 import * as Array from "effect/Array"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -92,11 +93,6 @@ export const update = (model: Model, message: Message) =>
 
 // VIEW
 
-const providerLabels: Record<ProviderName, string> = {
-  spotify: "Spotify",
-  twitch: "Twitch",
-}
-
 interface ResultMessage {
   readonly kind: "success" | "error"
   readonly text: string
@@ -156,8 +152,36 @@ const expiresAtView = (expiresAt: Option.Option<DateTime.Utc>, h: HtmlBuilder<Me
     onSome: (expiresAt) => h.p([h.Class("expires-at")], [DateTime.formatIso(expiresAt)]),
   })
 
+const nextRefreshAtView = (nextRefreshAt: Option.Option<DateTime.Utc>, h: HtmlBuilder<Message>) =>
+  Option.match(nextRefreshAt, {
+    onNone: () => h.empty,
+    onSome: (nextRefreshAt) =>
+      h.p([h.Class("next-refresh-at")], [`Next refresh at ${DateTime.formatIso(nextRefreshAt)}`]),
+  })
+
+const lastRefreshErrorView = (
+  lastRefreshError: Option.Option<RefreshError>,
+  h: HtmlBuilder<Message>,
+) =>
+  Option.match(lastRefreshError, {
+    onNone: () => h.empty,
+    onSome: ({ message, at }) =>
+      h.p(
+        [h.Class("last-refresh-error")],
+        [`Last refresh error at ${DateTime.formatIso(at)}: ${message}`],
+      ),
+  })
+
 const connectionView = (
-  { provider, status, connectedAccount, scopes, expiresAt }: ConnectionSummary,
+  {
+    provider,
+    status,
+    connectedAccount,
+    scopes,
+    expiresAt,
+    nextRefreshAt,
+    lastRefreshError,
+  }: ConnectionSummary,
   h: HtmlBuilder<Message>,
 ) =>
   h.keyed("section")(
@@ -169,6 +193,8 @@ const connectionView = (
       connectedAccountView(connectedAccount, h),
       scopesView(scopes, h),
       expiresAtView(expiresAt, h),
+      nextRefreshAtView(nextRefreshAt, h),
+      lastRefreshErrorView(lastRefreshError, h),
       // NOTE: a native form submit, so the browser navigates to the Worker's
       // authorize route and follows its redirect to the Provider. A plain
       // button keeps the form free of client-side handling on purpose.

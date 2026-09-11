@@ -23,8 +23,10 @@ import {
 } from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
+import type { RefreshAlarm } from "../src/RefreshAlarm.ts"
 import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
 import { FakeProviders, type FakeProvidersService } from "./FakeProviders.ts"
+import { FakeRefreshAlarm, type FakeRefreshAlarmService } from "./FakeRefreshAlarm.ts"
 import { broadcaster } from "./fixtures.ts"
 
 type ExecutionContext = Parameters<typeof fromExecutionContext>[0]
@@ -63,7 +65,8 @@ export interface SendOptions {
  * One Worker plus one in-process Connection object per Provider, each over
  * its own in-memory database, alive for the surrounding scope. The stores are
  * exposed so a test can arrange a Connection that no HTTP route creates yet,
- * and the objects so a test can call an RPC no route reaches.
+ * the objects so a test can call an RPC no route reaches, and the alarms so
+ * a test can see when each object's next refresh is armed for.
  */
 export interface BroadcasterWorld {
   readonly send: (request: Request, options?: SendOptions) => Effect.Effect<Response>
@@ -71,20 +74,27 @@ export interface BroadcasterWorld {
   readonly objects: Record<ProviderName, ConnectionObjectShape>
   /** The fake Providers every object talks to, shared so a test can script them. */
   readonly providers: FakeProvidersService
+  /** Each object's fake alarm, one per Provider as each object has its own. */
+  readonly alarms: Record<ProviderName, FakeRefreshAlarmService>
 }
 
 /**
  * One object's services over a fresh in-memory database, playing one Durable
- * Object's storage, the fake Credentials, and the `HttpClient` routed to the
- * fake Providers.
+ * Object's storage, the fake Credentials, the `HttpClient` routed to the fake
+ * Providers, and the object's own fake alarm.
  */
-const inMemoryObject = (provider: ProviderName, httpClient: Layer.Layer<HttpClient.HttpClient>) =>
+const inMemoryObject = (
+  provider: ProviderName,
+  httpClient: Layer.Layer<HttpClient.HttpClient>,
+  alarm: Layer.Layer<RefreshAlarm>,
+) =>
   Layer.build(
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
       Layer.provide(FakeProviders.layerCredentials),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(httpClient),
+      Layer.provide(alarm),
     ),
   )
 
@@ -98,8 +108,9 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
   function* () {
     const fakes = yield* Layer.build(FakeProviders.layer)
     const providers = Context.get(fakes, FakeProviders)
+    const alarms = yield* perProvider(() => Layer.build(FakeRefreshAlarm.layer))
     const services = yield* perProvider((provider) =>
-      inMemoryObject(provider, Layer.succeedContext(fakes)),
+      inMemoryObject(provider, Layer.succeedContext(fakes), Layer.succeedContext(alarms[provider])),
     )
     const stores = Record.map(services, Context.get(ConnectionStore))
     const objects = yield* perProvider((provider) =>
@@ -136,6 +147,12 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       )
     }
 
-    return { send, stores, objects, providers }
+    return {
+      send,
+      stores,
+      objects,
+      providers,
+      alarms: Record.map(alarms, Context.get(FakeRefreshAlarm)),
+    }
   },
 )

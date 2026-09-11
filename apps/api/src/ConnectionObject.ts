@@ -32,6 +32,7 @@ import {
 } from "./ConnectionStore.ts"
 import { Provider, type ProviderRequestFailed } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
+import { RefreshAlarm } from "./RefreshAlarm.ts"
 import * as WebCrypto from "./WebCrypto.ts"
 
 /**
@@ -80,6 +81,11 @@ export type ConnectionObjectShape = {
     string,
     ConnectionNotConfigured | ReauthorizationRequired | ProviderRequestFailed
   >
+  /**
+   * The Durable Object alarm handler: runs the scheduled refresh. The
+   * platform calls it when the alarm rings; tests call it directly.
+   */
+  readonly alarm: () => Effect.Effect<void>
 }
 
 /** The result the Broadcaster Page shows for each way a claim can miss its Attempt. */
@@ -113,6 +119,8 @@ export const makeConnectionObject = (
           connectedAccount: Option.none(),
           scopes: [],
           expiresAt: Option.none(),
+          nextRefreshAt: Option.none(),
+          lastRefreshError: Option.none(),
         }),
         onSome: (connection) => ({
           provider,
@@ -120,6 +128,8 @@ export const makeConnectionObject = (
           connectedAccount: Option.some(connection.connectedAccount),
           scopes: connection.scopes,
           expiresAt: Option.some(connection.expiresAt),
+          nextRefreshAt: connection.nextRefreshAt,
+          lastRefreshError: connection.lastRefreshError,
         }),
       })
     const rejected = (rejection: AuthorizationAttemptRejected) =>
@@ -148,20 +158,21 @@ export const makeConnectionObject = (
           ),
         ),
       getAccessToken: () => Effect.map(lifecycle.requestAccessToken, Redacted.value),
+      alarm: () => lifecycle.runScheduledRefresh,
     }
   })
 
 /**
  * The object's whole layer graph over a `SqlClient`, the Provider
- * Credentials, an `HttpClient`, and a `Crypto`: the store, the Provider
- * chosen by name, the lifecycle, and the flow.
+ * Credentials, an `HttpClient`, a `Crypto`, and the `RefreshAlarm`: the
+ * store, the Provider chosen by name, the lifecycle, and the flow.
  */
 export const connectionObjectLayer = (
   provider: ProviderName,
 ): Layer.Layer<
   ConnectionStore | AuthorizationFlow | ConnectionLifecycle,
   never,
-  SqlClient.SqlClient | ProviderCredentials | HttpClient.HttpClient | Crypto.Crypto
+  SqlClient.SqlClient | ProviderCredentials | HttpClient.HttpClient | Crypto.Crypto | RefreshAlarm
 > =>
   AuthorizationFlow.layer.pipe(
     Layer.provideMerge(ConnectionLifecycle.layer),
@@ -177,7 +188,8 @@ const encodeSummary = (summary: ConnectionSummary) =>
 /**
  * One Durable Object instance per Provider, addressed by Provider name. The
  * object hosts the store over its own SQLite storage, so each Provider's
- * Connection and Attempts live in their own database.
+ * Connection and Attempts live in their own database, and its refresh
+ * schedule on its own alarm.
  */
 export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>()(
   "ConnectionObject",
@@ -200,6 +212,8 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
           Layer.provide(ProviderCredentials.layer),
           Layer.provide(FetchHttpClient.layer),
           Layer.provide(WebCrypto.layer),
+          Layer.provide(RefreshAlarm.layer),
+          Layer.provide(Layer.succeed(Cloudflare.DurableObjectState, state)),
         ),
         instanceScope,
       )

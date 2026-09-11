@@ -1,5 +1,5 @@
 import { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
-import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import { type ProviderName, providerLabels } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
@@ -82,6 +82,27 @@ export const isClientRejection = (failure: ProviderRequestFailed): boolean =>
   failure.reason.status >= 400 &&
   failure.reason.status < 500 &&
   failure.reason.status !== 429
+
+/**
+ * Whether the failure is the kind a short wait tends to cure: the Provider
+ * could not be reached, or asked for a pause.
+ */
+export const isMomentary = (failure: ProviderRequestFailed): boolean =>
+  failure.reason._tag === "Transport" ||
+  (failure.reason._tag === "Status" && failure.reason.status === 429)
+
+/** The failure in words for the Broadcaster Page: which Provider, which request, and what came of it. */
+export const describeFailure = (failure: ProviderRequestFailed): string => {
+  const subject = `${providerLabels[failure.provider]} ${failure.operation} request`
+  switch (failure.reason._tag) {
+    case "Transport":
+      return `The ${subject} got no answer.`
+    case "Status":
+      return `The ${subject} was answered with status ${failure.reason.status}.`
+    case "Body":
+      return `The ${subject} was answered with an unexpected body.`
+  }
+}
 
 const failureReason = (
   cause: HttpClientError.HttpClientError | Schema.SchemaError,

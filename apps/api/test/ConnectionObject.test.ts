@@ -15,9 +15,33 @@ import * as TestClock from "effect/testing/TestClock"
 import { type ProviderFailureReason, ProviderRequestFailed } from "../src/Provider.ts"
 import { makeBroadcasterWorld } from "./BroadcasterHarness.ts"
 import type { TokenEndpoint } from "./FakeProviders.ts"
-import { authorizedConnection, grantedScenario, pendingAttempt } from "./fixtures.ts"
+import {
+  authorizedConnection,
+  grantedScenario,
+  grantedTokens,
+  pendingAttempt,
+  strugglingConnection,
+} from "./fixtures.ts"
 
 const at = (iso: string) => TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(iso)))
+
+const time = (iso: string) => DateTime.makeUnsafe(iso)
+
+/** What a refresh leaves behind about its scheduling and its last failure. */
+type Schedule = Pick<
+  Connection,
+  "status" | "refreshRetryCount" | "nextRefreshAt" | "lastRefreshError"
+>
+
+const schedule = ({
+  status,
+  refreshRetryCount,
+  nextRefreshAt,
+  lastRefreshError,
+}: Connection): Schedule => ({ status, refreshRetryCount, nextRefreshAt, lastRefreshError })
+
+const assertSchedule = (stored: Option.Option<Connection>, expected: Schedule) =>
+  assert.deepStrictEqual(Option.map(stored, schedule), Option.some(expected))
 
 /** A world at 12:55, holding a Connection for the Provider whose token has five minutes left. */
 const worldDueForRefresh = (provider: ProviderName = "spotify") =>
@@ -35,24 +59,46 @@ const carriedOver = (connection: Connection) => ({
   status: connection.status,
 })
 
-/** The ways a refresh can fail without the Provider having rejected the refresh token. */
+/**
+ * The ways a refresh can fail without the Provider having rejected the
+ * refresh token, with what the Connection records about each and whether a
+ * short wait is expected to cure it.
+ */
 const transientFailures: ReadonlyArray<{
   readonly name: string
   readonly token: TokenEndpoint
   readonly reason: ProviderFailureReason
+  readonly message: string
+  readonly momentary: boolean
 }> = [
   {
     name: "a rate limit",
     token: { _tag: "Status", status: 429 },
     reason: { _tag: "Status", status: 429 },
+    message: "The Spotify refresh request was answered with status 429.",
+    momentary: true,
   },
   {
     name: "a Provider outage",
     token: { _tag: "Status", status: 503 },
     reason: { _tag: "Status", status: 503 },
+    message: "The Spotify refresh request was answered with status 503.",
+    momentary: false,
   },
-  { name: "a network failure", token: { _tag: "Unreachable" }, reason: { _tag: "Transport" } },
-  { name: "a malformed token response", token: { _tag: "Malformed" }, reason: { _tag: "Body" } },
+  {
+    name: "a network failure",
+    token: { _tag: "Unreachable" },
+    reason: { _tag: "Transport" },
+    message: "The Spotify refresh request got no answer.",
+    momentary: true,
+  },
+  {
+    name: "a malformed token response",
+    token: { _tag: "Malformed" },
+    reason: { _tag: "Body" },
+    message: "The Spotify refresh request was answered with an unexpected body.",
+    momentary: false,
+  },
 ]
 
 describe("ConnectionObject.getAccessToken", () => {
@@ -117,8 +163,13 @@ describe("ConnectionObject.getAccessToken", () => {
           scopes: ["scope-a", "scope-b"],
           tokenType: "Bearer",
           expiresAt: DateTime.makeUnsafe("2026-09-11T13:55:00Z"),
-          nextRefreshAt: Option.none(),
+          nextRefreshAt: Option.some(time("2026-09-11T13:50:00Z")),
         }),
+      )
+      // The refresh moved the token's expiry, so the alarm moves with it.
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T13:50:00Z")),
       )
     }).pipe(Effect.scoped),
   )
@@ -182,8 +233,17 @@ describe("ConnectionObject.getAccessToken", () => {
       assert.deepStrictEqual(exit, Exit.fail(new ReauthorizationRequired({ provider: "spotify" })))
       assert.deepStrictEqual(
         yield* world.stores.spotify.readConnection,
-        Option.some({ ...authorizedConnection, status: "Reauthorization Required" }),
+        Option.some({
+          ...authorizedConnection,
+          status: "Reauthorization Required",
+          nextRefreshAt: Option.none(),
+          lastRefreshError: Option.some({
+            message: "The Spotify refresh request was answered with status 400.",
+            at: time("2026-09-11T12:55:00Z"),
+          }),
+        }),
       )
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
       // Once rejected, the next request fails the same way without asking again.
       const again = yield* Effect.exit(world.objects.spotify.getAccessToken())
       assert.deepStrictEqual(again, Exit.fail(new ReauthorizationRequired({ provider: "spotify" })))
@@ -275,6 +335,279 @@ describe("ConnectionObject.getAccessToken", () => {
           connectedAccount: { id: "account-2", displayName: "Max again" },
         }),
       )
+    }).pipe(Effect.scoped),
+  )
+})
+
+/** The claim the callback presents for the pending Attempt. */
+const pendingClaim = {
+  state: pendingAttempt.state,
+  provider: pendingAttempt.provider,
+  callbackUri: pendingAttempt.callbackUri,
+  broadcaster: pendingAttempt.broadcaster,
+}
+
+/** A world at noon with a pending Attempt, ready to complete an authorization. */
+const worldWithAttempt = Effect.gen(function* () {
+  const world = yield* makeBroadcasterWorld
+  yield* at("2026-09-11T12:00:00Z")
+  yield* world.stores.spotify.createAttempt(pendingAttempt)
+  return world
+})
+
+describe("ConnectionObject.completeAuthorization scheduling", () => {
+  it.effect("schedules the first refresh five minutes before the token expires", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithAttempt
+      yield* world.providers.set("spotify", grantedScenario)
+      yield* world.objects.spotify.completeAuthorization(pendingClaim, "code-1")
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Authorized",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.some(time("2026-09-11T12:55:00Z")),
+        lastRefreshError: Option.none(),
+      })
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:55:00Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("schedules a token already within the threshold one second out", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithAttempt
+      yield* world.providers.set("spotify", {
+        ...grantedScenario,
+        token: { _tag: "Grant", grant: { ...grantedTokens, expiresIn: 60 } },
+      })
+      yield* world.objects.spotify.completeAuthorization(pendingClaim, "code-1")
+      assert.deepStrictEqual(
+        Option.flatMap(yield* world.stores.spotify.readConnection, (c) => c.nextRefreshAt),
+        Option.some(time("2026-09-11T12:00:01Z")),
+      )
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:00:01Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("replaces a pending retry schedule with the new token's", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithAttempt
+      yield* world.stores.spotify.writeConnection(strugglingConnection)
+      yield* world.providers.set("spotify", grantedScenario)
+      yield* world.objects.spotify.completeAuthorization(pendingClaim, "code-1")
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Authorized",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.some(time("2026-09-11T12:55:00Z")),
+        lastRefreshError: Option.none(),
+      })
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:55:00Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("schedules nothing for a Connection that cannot be refreshed", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithAttempt
+      yield* world.providers.set("spotify", {
+        ...grantedScenario,
+        token: {
+          _tag: "Grant",
+          grant: { ...grantedTokens, refreshToken: Option.none() },
+        },
+      })
+      yield* world.objects.spotify.completeAuthorization(pendingClaim, "code-1")
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Reauthorization Required",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.none(),
+        lastRefreshError: Option.none(),
+      })
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+    }).pipe(Effect.scoped),
+  )
+})
+
+describe("ConnectionObject.alarm", () => {
+  it.effect("refreshes when the stored time has come and schedules the next refresh", () =>
+    Effect.gen(function* () {
+      const world = yield* worldDueForRefresh()
+      yield* world.providers.set("spotify", grantedScenario)
+      yield* world.objects.spotify.alarm()
+      const received = yield* world.providers.received
+      assert.strictEqual(received.length, 1)
+      assert.deepStrictEqual(received[0]?.form, {
+        grant_type: "refresh_token",
+        refresh_token: "refresh-token-1",
+      })
+      assert.deepStrictEqual(
+        yield* world.stores.spotify.readConnection,
+        Option.some({
+          ...authorizedConnection,
+          accessToken: Redacted.make("granted-access-token"),
+          refreshToken: Option.some(Redacted.make("granted-refresh-token")),
+          scopes: ["scope-a", "scope-b"],
+          expiresAt: time("2026-09-11T13:55:00Z"),
+          nextRefreshAt: Option.some(time("2026-09-11T13:50:00Z")),
+        }),
+      )
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T13:50:00Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("resets the retry count and clears the error once a retry succeeds", () =>
+    Effect.gen(function* () {
+      const world = yield* makeBroadcasterWorld
+      yield* at("2026-09-11T12:04:00Z")
+      yield* world.stores.spotify.writeConnection(strugglingConnection)
+      yield* world.providers.set("spotify", grantedScenario)
+      yield* world.objects.spotify.alarm()
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Authorized",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.some(time("2026-09-11T12:59:00Z")),
+        lastRefreshError: Option.none(),
+      })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("does nothing without a Connection", () =>
+    Effect.gen(function* () {
+      const world = yield* makeBroadcasterWorld
+      yield* at("2026-09-11T12:55:00Z")
+      yield* world.objects.spotify.alarm()
+      assert.deepStrictEqual(yield* world.providers.received, [])
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("re-arms itself when it rings before the stored time", () =>
+    Effect.gen(function* () {
+      const world = yield* makeBroadcasterWorld
+      yield* at("2026-09-11T12:50:00Z")
+      yield* world.stores.spotify.writeConnection(authorizedConnection)
+      yield* world.objects.spotify.alarm()
+      assert.deepStrictEqual(yield* world.providers.received, [])
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:55:00Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("clears a stale schedule on a Connection that needs reauthorization", () =>
+    Effect.gen(function* () {
+      const world = yield* worldDueForRefresh()
+      yield* world.stores.spotify.writeConnection({
+        ...authorizedConnection,
+        status: "Reauthorization Required",
+      })
+      yield* world.objects.spotify.alarm()
+      assert.deepStrictEqual(yield* world.providers.received, [])
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Reauthorization Required",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.none(),
+        lastRefreshError: Option.none(),
+      })
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect.each(transientFailures.filter((failure) => failure.momentary))(
+    "retries $name after one, two, and four minutes, then every ten, then starts over",
+    ({ token, message }) =>
+      Effect.gen(function* () {
+        const world = yield* worldDueForRefresh()
+        yield* world.providers.set("spotify", { ...grantedScenario, token })
+        const expected: ReadonlyArray<readonly [ring: string, next: string, count: number]> = [
+          ["2026-09-11T12:55:00Z", "2026-09-11T12:56:00Z", 1],
+          ["2026-09-11T12:56:00Z", "2026-09-11T12:58:00Z", 2],
+          ["2026-09-11T12:58:00Z", "2026-09-11T13:02:00Z", 3],
+          ["2026-09-11T13:02:00Z", "2026-09-11T13:12:00Z", 0],
+          ["2026-09-11T13:12:00Z", "2026-09-11T13:13:00Z", 1],
+        ]
+        for (const [ring, next, count] of expected) {
+          yield* at(ring)
+          yield* world.objects.spotify.alarm()
+          const stored = yield* world.stores.spotify.readConnection
+          assertSchedule(stored, {
+            status: "Authorized",
+            refreshRetryCount: count,
+            nextRefreshAt: Option.some(time(next)),
+            lastRefreshError: Option.some({ message, at: time(ring) }),
+          })
+          assert.deepStrictEqual(
+            Option.map(stored, (connection) => connection.accessToken),
+            Option.some(Redacted.make("access-token-1")),
+          )
+          assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.some(time(next)))
+        }
+        assert.strictEqual((yield* world.providers.received).length, expected.length)
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect.each(transientFailures.filter((failure) => !failure.momentary))(
+    "retries $name after ten minutes and starts the short retries over",
+    ({ token, message }) =>
+      Effect.gen(function* () {
+        const world = yield* worldDueForRefresh()
+        yield* world.stores.spotify.writeConnection({
+          ...authorizedConnection,
+          refreshRetryCount: 1,
+        })
+        yield* world.providers.set("spotify", { ...grantedScenario, token })
+        yield* world.objects.spotify.alarm()
+        assertSchedule(yield* world.stores.spotify.readConnection, {
+          status: "Authorized",
+          refreshRetryCount: 0,
+          nextRefreshAt: Option.some(time("2026-09-11T13:05:00Z")),
+          lastRefreshError: Option.some({ message, at: time("2026-09-11T12:55:00Z") }),
+        })
+        assert.deepStrictEqual(
+          yield* world.alarms.spotify.armedFor,
+          Option.some(time("2026-09-11T13:05:00Z")),
+        )
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("marks Reauthorization Required and disarms when the refresh token is rejected", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithAttempt
+      yield* world.providers.set("spotify", grantedScenario)
+      yield* world.objects.spotify.completeAuthorization(pendingClaim, "code-1")
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:55:00Z")),
+      )
+      yield* at("2026-09-11T12:55:00Z")
+      yield* world.providers.set("spotify", {
+        ...grantedScenario,
+        token: { _tag: "Status", status: 401 },
+      })
+      yield* world.objects.spotify.alarm()
+      assertSchedule(yield* world.stores.spotify.readConnection, {
+        status: "Reauthorization Required",
+        refreshRetryCount: 0,
+        nextRefreshAt: Option.none(),
+        lastRefreshError: Option.some({
+          message: "The Spotify refresh request was answered with status 401.",
+          at: time("2026-09-11T12:55:00Z"),
+        }),
+      })
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+      // A later ring finds nothing scheduled and leaves the Provider alone.
+      yield* world.objects.spotify.alarm()
+      assert.strictEqual((yield* world.providers.received).length, 3)
     }).pipe(Effect.scoped),
   )
 })

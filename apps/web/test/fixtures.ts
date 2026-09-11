@@ -11,6 +11,8 @@ export const notConfiguredConnections: ReadonlyArray<ConnectionSummary> = [
     connectedAccount: Option.none(),
     scopes: [],
     expiresAt: Option.none(),
+    nextRefreshAt: Option.none(),
+    lastRefreshError: Option.none(),
   },
   {
     provider: "twitch",
@@ -18,6 +20,8 @@ export const notConfiguredConnections: ReadonlyArray<ConnectionSummary> = [
     connectedAccount: Option.none(),
     scopes: [],
     expiresAt: Option.none(),
+    nextRefreshAt: Option.none(),
+    lastRefreshError: Option.none(),
   },
 ]
 
@@ -27,6 +31,18 @@ export const authorizedTwitch: ConnectionSummary = {
   connectedAccount: Option.some({ id: "141981764", displayName: "twitchdev" }),
   scopes: ["user:read:chat", "user:write:chat"],
   expiresAt: Option.some(DateTime.makeUnsafe("2026-09-11T13:00:00Z")),
+  nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:55:00Z")),
+  lastRefreshError: Option.none(),
+}
+
+/** The Twitch Connection after a refresh failed and a retry was scheduled. */
+export const strugglingTwitch: ConnectionSummary = {
+  ...authorizedTwitch,
+  nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:56:00Z")),
+  lastRefreshError: Option.some({
+    message: "The Twitch refresh request got no answer.",
+    at: DateTime.makeUnsafe("2026-09-11T12:55:00Z"),
+  }),
 }
 
 export const loadingModel: Model = {

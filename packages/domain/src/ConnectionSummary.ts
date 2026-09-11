@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema"
 import { ConnectedAccount } from "./ConnectedAccount.ts"
 import { ConnectionStatus } from "./ConnectionStatus.ts"
 import { ProviderName } from "./ProviderName.ts"
+import { RefreshError } from "./RefreshError.ts"
 
 /**
  * What the Broadcaster Page shows for one Provider's Connection. Never
@@ -17,6 +18,10 @@ export const ConnectionSummary = Schema.Struct({
   scopes: Schema.Array(Schema.String),
   /** When the current access token expires. */
   expiresAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
+  /** When the next scheduled refresh runs; absent while none is scheduled. */
+  nextRefreshAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
+  /** Why the most recent refresh failed, until one succeeds. */
+  lastRefreshError: Schema.OptionFromNullOr(RefreshError),
 }).annotate({ identifier: "ConnectionSummary" })
 export type ConnectionSummary = typeof ConnectionSummary.Type
 export type ConnectionSummaryEncoded = typeof ConnectionSummary.Encoded

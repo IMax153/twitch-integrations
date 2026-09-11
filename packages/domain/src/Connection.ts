@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema"
 import { ConnectedAccount } from "./ConnectedAccount.ts"
 import { ConnectionStatus } from "./ConnectionStatus.ts"
+import { RefreshError } from "./RefreshError.ts"
 
 /**
  * A token the Provider issued. Redacted in memory so it never prints; encoded
@@ -21,7 +22,7 @@ export const Connection = Schema.Struct({
   status: ConnectionStatus,
   refreshRetryCount: Schema.Int,
   nextRefreshAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
-  lastRefreshError: Schema.OptionFromNullOr(Schema.String),
+  lastRefreshError: Schema.OptionFromNullOr(RefreshError),
   connectedAccount: ConnectedAccount,
 }).annotate({ identifier: "Connection" })
 export type Connection = typeof Connection.Type

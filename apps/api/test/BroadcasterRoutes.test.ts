@@ -24,6 +24,8 @@ const notConfigured = (provider: ProviderName): ConnectionSummary => ({
   connectedAccount: Option.none(),
   scopes: [],
   expiresAt: Option.none(),
+  nextRefreshAt: Option.none(),
+  lastRefreshError: Option.none(),
 })
 
 const decodeConnections = Schema.decodeUnknownEffect(
@@ -209,6 +211,8 @@ describe("broadcaster routes", () => {
           connectedAccount: Option.some({ id: "spotify-user-1", displayName: "Max" }),
           scopes: ["user-read-currently-playing", "user-read-playback-state"],
           expiresAt: Option.some(DateTime.makeUnsafe("2026-09-11T13:00:00Z")),
+          nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:55:00Z")),
+          lastRefreshError: Option.none(),
         },
         notConfigured("twitch"),
       ])
@@ -562,6 +566,8 @@ describe("broadcaster routes", () => {
           connectedAccount: Option.some({ id: "account-1", displayName: "Max" }),
           scopes: ["scope-a", "scope-b"],
           expiresAt: Option.some(DateTime.makeUnsafe("2026-09-11T13:00:00Z")),
+          nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:55:00Z")),
+          lastRefreshError: Option.none(),
         })
       }),
     )

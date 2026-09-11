@@ -18,6 +18,7 @@ import {
   authorizedTwitch,
   loadedModel,
   notConfiguredConnections as connections,
+  strugglingTwitch,
 } from "./fixtures.ts"
 
 describe("view", () => {
@@ -56,17 +57,36 @@ describe("view", () => {
       expect(selector('section[data-provider="twitch"] .expires-at')).toHaveText(
         "2026-09-11T13:00:00.000Z",
       ),
+      expect(selector('section[data-provider="twitch"] .next-refresh-at')).toHaveText(
+        "Next refresh at 2026-09-11T12:55:00.000Z",
+      ),
+      expect(selector('section[data-provider="twitch"] .last-refresh-error')).not.toExist(),
       expect(selector('section[data-provider="twitch"] button')).toHaveText("Reconnect"),
     )
   })
 
-  test("shows no account, scopes, or expiry while Not Configured", () => {
+  test("shows the last refresh error and the retry it scheduled", () => {
+    scene(
+      { update, view },
+      given({ ...loadedModel, connections: AsyncData.succeed([strugglingTwitch]) }),
+      expect(selector('section[data-provider="twitch"] .last-refresh-error')).toHaveText(
+        "Last refresh error at 2026-09-11T12:55:00.000Z: The Twitch refresh request got no answer.",
+      ),
+      expect(selector('section[data-provider="twitch"] .next-refresh-at')).toHaveText(
+        "Next refresh at 2026-09-11T12:56:00.000Z",
+      ),
+    )
+  })
+
+  test("shows no account, scopes, expiry, or refresh details while Not Configured", () => {
     scene(
       { update, view },
       given(loadedModel),
       expect(selector('section[data-provider="twitch"] .connected-account')).not.toExist(),
       expect(selector('section[data-provider="twitch"] ul.scopes')).not.toExist(),
       expect(selector('section[data-provider="twitch"] .expires-at')).not.toExist(),
+      expect(selector('section[data-provider="twitch"] .next-refresh-at')).not.toExist(),
+      expect(selector('section[data-provider="twitch"] .last-refresh-error')).not.toExist(),
     )
   })
 

@@ -11,7 +11,8 @@ import { ConnectionLifecycle } from "../src/ConnectionLifecycle.ts"
 import { ConnectionStore } from "../src/ConnectionStore.ts"
 import { Provider, type TokenResponse } from "../src/Provider.ts"
 import { FakeProviders } from "./FakeProviders.ts"
-import { authorizedConnection } from "./fixtures.ts"
+import { FakeRefreshAlarm } from "./FakeRefreshAlarm.ts"
+import { authorizedConnection, strugglingConnection } from "./fixtures.ts"
 
 /** A full token response: fresh tokens, an hour of validity, and a granted scope list. */
 const fullResponse: TokenResponse = {
@@ -26,20 +27,13 @@ const account = { id: "spotify-user-2", displayName: "Someone" }
 
 const noon = DateTime.makeUnsafe("2026-09-11T12:00:00Z")
 
-/** A Connection mid-way through failing refreshes, so accepting has something to reset. */
-const strugglingConnection = {
-  ...authorizedConnection,
-  refreshRetryCount: 3,
-  nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:04:00Z")),
-  lastRefreshError: Option.some("rate limited"),
-}
-
 const lifecycleLayer = ConnectionLifecycle.layer.pipe(
   Layer.provideMerge(ConnectionStore.layer),
   Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
   Layer.provide(Provider.layer("spotify")),
   Layer.provide(FakeProviders.layer),
   Layer.provide(FakeProviders.layerCredentials),
+  Layer.provide(FakeRefreshAlarm.layer),
 )
 
 const withLifecycle = <A, E>(
@@ -70,7 +64,7 @@ describe("ConnectionLifecycle", () => {
             expiresAt: DateTime.makeUnsafe("2026-09-11T13:00:00Z"),
             status: "Authorized",
             refreshRetryCount: 0,
-            nextRefreshAt: Option.none(),
+            nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:55:00Z")),
             lastRefreshError: Option.none(),
             connectedAccount: account,
           }),
