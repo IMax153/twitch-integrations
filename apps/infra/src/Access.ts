@@ -1,3 +1,4 @@
+import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
@@ -8,11 +9,21 @@ import * as Redacted from "effect/Redacted"
  * The Access application both Workers enroll in through their `access` prop.
  * Enrolling a Worker is what makes Cloudflare populate `ctx.access`; a
  * hostname-scoped application admits the request but leaves it empty.
+ *
+ * Under `alchemy dev` there is no application: the Workers run locally, so
+ * nothing could enroll in one, and Cloudflare rejects an application with no
+ * destinations. Each Worker's `dev.access` stub stands in for it.
  */
 export class BroadcasterAccess extends Context.Service<
   BroadcasterAccess,
-  Cloudflare.Access.Application
+  Cloudflare.Access.Application | undefined
 >()("@twitch-integrations/infra/BroadcasterAccess") {}
+
+/** The `access` prop enrolling a Worker in the application, or no prop at all under `alchemy dev`. */
+export const enrollIn = (
+  access: Cloudflare.Access.Application | undefined,
+): { readonly access: Cloudflare.Access.Application } | {} =>
+  access === undefined ? {} : { access }
 
 /** The fixed Access `user_uuid` the simulated Broadcaster carries under `alchemy dev`. */
 const devBroadcasterUserUuid = "00000000-0000-4000-8000-000000000001"
@@ -26,7 +37,11 @@ export const devBroadcasterAccess = {
   },
 }
 
+/** The Access resources in the cloud, or nothing under `alchemy dev`. */
 export const CloudflareAccess = Effect.gen(function* () {
+  if (yield* ALCHEMY_DEV) {
+    return undefined
+  }
   const clientId = yield* Config.Redacted("CLOUDFLARE_ACCESS_GITHUB_CLIENT_ID")
   const clientSecret = yield* Config.Redacted("CLOUDFLARE_ACCESS_GITHUB_CLIENT_SECRET")
 

@@ -48,7 +48,7 @@ Spotify accepts plain HTTP only for loopback IP literals, so open the local page
 vp run dev
 ```
 
-This runs `alchemy dev` on the stack in `alchemy.run.ts` with no stage flag, so Alchemy uses its per-user dev stage and local Durable Object storage, separate from production. Two local servers start:
+This runs `alchemy dev` on the stack in `alchemy.run.ts` with no stage flag, so Alchemy uses its per-user dev stage and local Durable Object storage, separate from production. The dev stage creates no Cloudflare Access resources; each Worker's simulated Access identity stands in for them. Two local servers start:
 
 - The API Worker on `127.0.0.1:1337`, with a simulated Access identity for `TWITCH_BROADCASTER_EMAIL`.
 - The Broadcaster Page on `127.0.0.1:5173`, which proxies `/setup/api` and `/oauth` to the API Worker.

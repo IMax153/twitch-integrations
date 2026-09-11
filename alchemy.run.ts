@@ -20,7 +20,7 @@ export default Alchemy.Stack(
     yield* WebSite.pipe(provideAccess)
 
     return {
-      accessApplicationId: access.applicationId,
+      accessApplicationId: access?.applicationId,
       apiUrl: apiWorker.url,
     }
   }),

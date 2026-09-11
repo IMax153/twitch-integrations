@@ -1,4 +1,8 @@
-import { BroadcasterAccess, devBroadcasterAccess } from "@twitch-integrations/infra/Access"
+import {
+  BroadcasterAccess,
+  devBroadcasterAccess,
+  enrollIn,
+} from "@twitch-integrations/infra/Access"
 import {
   broadcasterHostname,
   broadcasterRoute,
@@ -35,7 +39,7 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
       main: import.meta.url,
       domain: { name: broadcasterHostname, zoneName },
       routes: [broadcasterRoute("/setup/api*")],
-      access,
+      ...enrollIn(access),
       workersDev: false,
       dev: { host: devHost, port: devPort, strictPort: true, access: devBroadcasterAccess },
     }
