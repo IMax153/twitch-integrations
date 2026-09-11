@@ -9,7 +9,7 @@
 - [x] `.env.example` lists every Credential the Worker and Access application read
 - [x] Root package scripts run `alchemy dev` with no stage and `alchemy deploy --stage production`
 - [x] The README documents local setup, the callback URIs to register, and the deploy command
-- [ ] Human steps: register the local (`http://127.0.0.1:5173`) and production (`https://twitch-integrations.minbadblue.com`) callback URIs from the README on the Spotify and Twitch developer applications, one application per Provider
+- [x] Human steps: register the local (`http://127.0.0.1:5173`) and production (`https://twitch-integrations.minbadblue.com`) callback URIs from the README on the Spotify and Twitch developer applications, one application per Provider
 - [ ] Human steps: run `alchemy dev`, open the Broadcaster Page, complete consent for both Providers, confirm Authorized with the expected Connected Account
 - [ ] Human steps: wait past the refresh threshold locally or shorten expiry via the fake transport and confirm a refresh occurs
 - [ ] Deploy to the `production` stage, confirm the Access login is required, complete consent for both Providers, and confirm both Connections show Authorized with next refresh scheduled
