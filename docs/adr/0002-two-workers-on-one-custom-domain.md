@@ -13,3 +13,7 @@ Access is applied by enrolling both Workers in one Access application rather tha
 - Access now covers each enrolled Worker entirely, not only the `/setup` and `/oauth` prefixes. Nothing public lives on either Worker today. A future public path, such as an EventSub webhook, goes on a separate Worker or hostname, or is carved out with a hostname-scoped Access application that carries a bypass policy, since hostname-level policies take precedence over Worker-level ones.
 - Both Workers have workers.dev URLs disabled so the custom domain is the only origin and the OAuth callback URL is stable.
 - Under `alchemy dev` the Workers run on separate local ports; the web dev server proxies `/setup/api` and `/oauth` to the API Worker on port 1337.
+
+## Amendment, 2026-09-11
+
+The hostname moved from `twitch-integrations.minbadblue.com` to `stream.minbadblue.com`. Chrome's Safe Browsing flagged the Spotify authorize route on the old name as a lookalike site, and both Twitch and Spotify discourage their names in developer domains. Nothing else in this decision changes: the API Worker still owns the hostname as its custom domain, the Broadcaster Page keeps the `/setup*` route, and Access stays Worker-scoped, so the rename replaces only the custom domain and the two routes. The Provider callback URIs are re-registered under the new name.

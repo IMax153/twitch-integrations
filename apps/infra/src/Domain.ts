@@ -9,8 +9,14 @@ export const zoneName = "minbadblue.com"
  */
 export const devHost = "127.0.0.1"
 
-/** The one hostname both Workers share; paths decide which Worker answers. */
-export const broadcasterHostname = "twitch-integrations.minbadblue.com"
+/**
+ * The one hostname both Workers share; paths decide which Worker answers.
+ * The name carries no Provider brand on purpose: the previous
+ * `twitch-integrations` hostname drew a Safe Browsing lookalike warning on
+ * the Spotify authorize route, and both Providers' brand rules discourage
+ * their names in domains.
+ */
+export const broadcasterHostname = "stream.minbadblue.com"
 
 /** A zone route on the broadcaster hostname for the given path pattern. */
 export const broadcasterRoute = (pathPattern: `/${string}`) => ({

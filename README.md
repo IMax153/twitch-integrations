@@ -35,10 +35,10 @@ pnpm exec alchemy profile edit
 
 The Worker builds each Provider's callback URI from the origin the browser used plus the fixed path `/oauth/<provider>/callback`, so the registered URIs must match the origins you will open. Register these on each Provider's developer application:
 
-| Provider | Local                                          | Production                                                          |
-| -------- | ---------------------------------------------- | ------------------------------------------------------------------- |
-| Spotify  | `http://127.0.0.1:5173/oauth/spotify/callback` | `https://twitch-integrations.minbadblue.com/oauth/spotify/callback` |
-| Twitch   | `http://127.0.0.1:5173/oauth/twitch/callback`  | `https://twitch-integrations.minbadblue.com/oauth/twitch/callback`  |
+| Provider | Local                                          | Production                                             |
+| -------- | ---------------------------------------------- | ------------------------------------------------------ |
+| Spotify  | `http://127.0.0.1:5173/oauth/spotify/callback` | `https://stream.minbadblue.com/oauth/spotify/callback` |
+| Twitch   | `http://127.0.0.1:5173/oauth/twitch/callback`  | `https://stream.minbadblue.com/oauth/twitch/callback`  |
 
 Spotify accepts plain HTTP only for loopback IP literals, so open the local page at `127.0.0.1` rather than `localhost`. If Twitch's console rejects the loopback literal, register `http://localhost:5173/oauth/twitch/callback` instead and open the page at `localhost` when authorizing Twitch.
 
@@ -67,7 +67,7 @@ vp run deploy
 
 This runs `alchemy deploy --stage production`. The stack has only ever been deployed under the `production` stage; deploying under any other stage name creates a second set of resources. After a deploy:
 
-1. Open `https://twitch-integrations.minbadblue.com/setup` in a private window and confirm Cloudflare Access asks you to sign in with GitHub.
+1. Open `https://stream.minbadblue.com/setup` in a private window and confirm Cloudflare Access asks you to sign in with GitHub.
 2. Sign in as the Broadcaster, press Connect for each Provider, and complete consent.
 3. Confirm both Connections show Authorized with the expected Connected Account and a next refresh time.
 
