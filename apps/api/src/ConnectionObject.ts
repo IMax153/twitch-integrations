@@ -1,5 +1,6 @@
 import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
 import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -7,7 +8,11 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
+import type * as SqlClient from "effect/unstable/sql/SqlClient"
+import { AuthorizationFlow } from "./AuthorizationFlow.ts"
 import { ConnectionStore } from "./ConnectionStore.ts"
+import { Provider } from "./Provider.ts"
+import { ProviderCredentials } from "./ProviderCredentials.ts"
 
 /**
  * The RPC surface one Provider's Connection object exposes to the Worker. A
@@ -19,18 +24,24 @@ export type ConnectionObjectShape = {
   /** What the Operator Page shows for this Provider. */
   // oxlint-disable-next-line effecttsgo/lazy-effect
   readonly describe: () => Effect.Effect<ConnectionSummary>
+  /** Records an Authorization Attempt for the Operator and returns the consent URL. */
+  readonly startAuthorization: (
+    operator: OperatorIdentity,
+    callbackUri: string,
+  ) => Effect.Effect<string>
 }
 
 /**
- * The object's behavior over its store, independent of Durable Object
+ * The object's behavior over its services, independent of Durable Object
  * hosting: production wraps it in the class below, tests build it directly
- * over an in-memory store.
+ * over an in-memory store and fake Credentials.
  */
 export const makeConnectionObject = (
   provider: ProviderName,
-): Effect.Effect<ConnectionObjectShape, never, ConnectionStore> =>
+): Effect.Effect<ConnectionObjectShape, never, ConnectionStore | AuthorizationFlow> =>
   Effect.gen(function* () {
     const store = yield* ConnectionStore
+    const flow = yield* AuthorizationFlow
     return {
       describe: () =>
         Effect.map(
@@ -40,8 +51,25 @@ export const makeConnectionObject = (
             onSome: (connection) => ({ provider, status: connection.status }),
           }),
         ),
+      startAuthorization: flow.start,
     }
   })
+
+/**
+ * The object's whole layer graph over a `SqlClient` and the Provider
+ * Credentials: the store, the Provider chosen by name, and the flow.
+ */
+export const connectionObjectLayer = (
+  provider: ProviderName,
+): Layer.Layer<
+  ConnectionStore | AuthorizationFlow,
+  never,
+  SqlClient.SqlClient | ProviderCredentials
+> =>
+  Layer.provideMerge(
+    AuthorizationFlow.layer,
+    Layer.merge(ConnectionStore.layer, Provider.layer(provider)),
+  )
 
 const decodeProviderName = Schema.decodeUnknownEffect(ProviderName)
 
@@ -65,11 +93,14 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
       // never closed on purpose: the adapter holds no finalizers, and workerd
       // evicts the whole isolate rather than signalling the instance.
       const instanceScope = yield* Scope.make()
-      const store = yield* Layer.buildWithScope(
-        ConnectionStore.layer.pipe(Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw }))),
+      const services = yield* Layer.buildWithScope(
+        connectionObjectLayer(provider).pipe(
+          Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
+          Layer.provide(ProviderCredentials.layer),
+        ),
         instanceScope,
       )
-      return yield* makeConnectionObject(provider).pipe(Effect.provide(store))
+      return yield* makeConnectionObject(provider).pipe(Effect.provide(services))
     })
   }),
 ) {}

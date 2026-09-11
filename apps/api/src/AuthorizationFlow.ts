@@ -1,0 +1,71 @@
+import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
+import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import * as Context from "effect/Context"
+import * as DateTime from "effect/DateTime"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Redacted from "effect/Redacted"
+import { ConnectionStore } from "./ConnectionStore.ts"
+import { Provider } from "./Provider.ts"
+
+export interface AuthorizationFlowService {
+  /**
+   * Records an Authorization Attempt for the Operator and returns the
+   * Provider consent URL the browser must be sent to. The callback URI is
+   * stored with the Attempt so the callback can only complete it from the
+   * same origin.
+   */
+  readonly start: (operator: OperatorIdentity, callbackUri: string) => Effect.Effect<string>
+}
+
+/** How long the Operator has to finish consent before the Attempt is stale. */
+const attemptLifetime = { minutes: 10 }
+
+// NOTE: the state value guards the callback against forgery, so it comes
+// from the platform's cryptographic source rather than Effect's seeded
+// pseudo-random `Random` service.
+// oxlint-disable-next-line effecttsgo/crypto-random-uuid-in-effect
+const randomState = Effect.sync(() => crypto.randomUUID())
+
+const make = Effect.gen(function* () {
+  const store = yield* ConnectionStore
+  const provider = yield* Provider
+
+  const consentUrl = (attempt: AuthorizationAttempt): string => {
+    const url = new URL(provider.authorizeUrl)
+    url.searchParams.set("client_id", Redacted.value(provider.credentials.clientId))
+    url.searchParams.set("response_type", "code")
+    url.searchParams.set("redirect_uri", attempt.callbackUri)
+    url.searchParams.set("scope", provider.scopes.join(" "))
+    url.searchParams.set("state", attempt.state)
+    return url.toString()
+  }
+
+  const flow: AuthorizationFlowService = {
+    start: (operator, callbackUri) =>
+      Effect.gen(function* () {
+        const createdAt = yield* DateTime.now
+        const attempt: AuthorizationAttempt = {
+          state: yield* randomState,
+          provider: provider.name,
+          callbackUri,
+          operator,
+          createdAt,
+          expiresAt: DateTime.add(createdAt, attemptLifetime),
+          consumed: false,
+        }
+        yield* store.createAttempt(attempt)
+        return consentUrl(attempt)
+      }),
+  }
+  return flow
+})
+
+/** Starts Provider authorizations for one Provider's Connection. */
+export class AuthorizationFlow extends Context.Service<
+  AuthorizationFlow,
+  AuthorizationFlowService
+>()("@twitch-integrations/api/AuthorizationFlow") {
+  static readonly layer: Layer.Layer<AuthorizationFlow, never, ConnectionStore | Provider> =
+    Layer.effect(AuthorizationFlow)(make)
+}

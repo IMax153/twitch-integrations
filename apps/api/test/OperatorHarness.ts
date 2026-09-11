@@ -12,11 +12,13 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
+import * as Redacted from "effect/Redacted"
 import type * as Scope from "effect/Scope"
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
-import { makeConnectionObject } from "../src/ConnectionObject.ts"
+import { connectionObjectLayer, makeConnectionObject } from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
+import { ProviderCredentials } from "../src/ProviderCredentials.ts"
 import { OperatorHttp } from "../src/OperatorRoutes.ts"
 import { operator } from "./fixtures.ts"
 
@@ -62,10 +64,29 @@ export interface OperatorWorld {
   readonly stores: Record<ProviderName, ConnectionStoreService>
 }
 
-/** The real store over a fresh in-memory database, playing one Durable Object's storage. */
-const inMemoryStore = Layer.build(
-  ConnectionStore.layer.pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" }))),
-).pipe(Effect.map(Context.get(ConnectionStore)))
+/** Fake Credentials with recognisable values, so a test can spot them in a consent URL. */
+const fakeCredentials = Layer.succeed(ProviderCredentials, {
+  spotify: {
+    clientId: Redacted.make("spotify-client-id"),
+    clientSecret: Redacted.make("spotify-client-secret"),
+  },
+  twitch: {
+    clientId: Redacted.make("twitch-client-id"),
+    clientSecret: Redacted.make("twitch-client-secret"),
+  },
+})
+
+/**
+ * One object's services over a fresh in-memory database, playing one Durable
+ * Object's storage, and the fake Credentials.
+ */
+const inMemoryObject = (provider: ProviderName) =>
+  Layer.build(
+    connectionObjectLayer(provider).pipe(
+      Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
+      Layer.provide(fakeCredentials),
+    ),
+  )
 
 /** Runs `make` once per Provider and keys the results by Provider name. */
 const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A, E, R>) =>
@@ -75,12 +96,15 @@ const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A,
 
 export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope> = Effect.gen(
   function* () {
-    const stores = yield* perProvider(() => inMemoryStore)
+    const services = yield* perProvider(inMemoryObject)
+    const stores = Record.map(services, Context.get(ConnectionStore))
     const objects = yield* perProvider((provider) =>
-      makeConnectionObject(provider).pipe(Effect.provideService(ConnectionStore, stores[provider])),
+      makeConnectionObject(provider).pipe(Effect.provide(services[provider])),
     )
     const connections = Layer.succeed(Connections, {
       describe: (provider) => objects[provider].describe(),
+      startAuthorization: (provider, operator, callbackUri) =>
+        objects[provider].startAuthorization(operator, callbackUri),
     })
     const handler = yield* OperatorHttp.pipe(Effect.provide(connections))
 

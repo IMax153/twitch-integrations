@@ -1,4 +1,5 @@
 import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -7,6 +8,12 @@ import { ConnectionObject } from "./ConnectionObject.ts"
 
 export interface ConnectionsService {
   readonly describe: (provider: ProviderName) => Effect.Effect<ConnectionSummary>
+  /** Starts an Authorization Attempt on the Provider's object and returns the consent URL. */
+  readonly startAuthorization: (
+    provider: ProviderName,
+    operator: OperatorIdentity,
+    callbackUri: string,
+  ) => Effect.Effect<string>
 }
 
 /**
@@ -21,6 +28,8 @@ export class Connections extends Context.Service<Connections, ConnectionsService
   static readonly layer = Layer.effect(Connections)(
     Effect.map(ConnectionObject, (objects) => ({
       describe: (provider) => objects.getByName(provider).describe(),
+      startAuthorization: (provider, operator, callbackUri) =>
+        objects.getByName(provider).startAuthorization(operator, callbackUri),
     })),
   )
 }

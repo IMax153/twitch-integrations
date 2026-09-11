@@ -4,6 +4,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import { Connections } from "./Connections.ts"
 import { OperatorHttp } from "./OperatorRoutes.ts"
+import { ProviderCredentials } from "./ProviderCredentials.ts"
 
 /** The port the API Worker listens on under `alchemy dev`; the web dev server proxies to it. */
 const devPort = 1337
@@ -18,6 +19,9 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
   "Worker",
   Effect.gen(function* () {
     const access = yield* OperatorAccess
+    // Yielding the Credentials here registers them as this Worker's secrets;
+    // the Connection object reads the bound values when it starts.
+    yield* ProviderCredentials.config
     return {
       main: import.meta.url,
       domain: { name: operatorHostname, zoneName },

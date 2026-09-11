@@ -1,8 +1,10 @@
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
@@ -30,14 +32,59 @@ const connectionsResponse = Effect.gen(function* () {
   return yield* connectionSummaries(summaries)
 })
 
+const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
+
+const unknownProvider = HttpServerResponse.text("Unknown Provider", { status: 404 })
+
+const isProviderName = Schema.is(ProviderName)
+
+/** The fixed path the Provider redirects back to, relative to the request's origin. */
+const callbackPath = (provider: ProviderName) => `/oauth/${provider}/callback`
+
+/**
+ * The Operator behind the request, or none when Access reports an identity
+ * without the fields an Attempt is bound to. The gate below already refused
+ * a request with no context at all; this covers an identity provider that
+ * reports an incomplete one. A failure to resolve the identity is a platform
+ * fault rather than a refusal, so it is left to surface as a defect.
+ */
+const operatorIdentity: Effect.Effect<
+  Option.Option<OperatorIdentity>,
+  never,
+  Effect.Services<typeof Cloudflare.Access.Context>
+> = Effect.gen(function* () {
+  const access = yield* Cloudflare.Access.Context
+  const identity = yield* access === undefined ? Effect.undefined : access.getIdentity()
+  return identity?.user_uuid === undefined || identity.email === undefined
+    ? Option.none()
+    : Option.some({ userUuid: identity.user_uuid, email: identity.email })
+}).pipe(Effect.orDie)
+
+// NOTE: 303 rather than 302, so the browser follows the form's POST with a
+// GET at the Provider.
+const authorizeResponse = Effect.gen(function* () {
+  const { provider } = yield* HttpRouter.params
+  if (!isProviderName(provider)) {
+    return unknownProvider
+  }
+  const operator = yield* operatorIdentity
+  if (Option.isNone(operator)) {
+    return accessRequired
+  }
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const callbackUri = new URL(callbackPath(provider), request.originalUrl).toString()
+  const connections = yield* Connections
+  const consentUrl = yield* connections.startAuthorization(provider, operator.value, callbackUri)
+  return HttpServerResponse.redirect(consentUrl, { status: 303 })
+})
+
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
 // `Connections` the surrounding Worker or test harness supplies.
-const routes = HttpRouter.add("GET", "/setup/api/connections", connectionsResponse).pipe(
-  HttpRouter.provideRequest(Layer.effect(Connections)(Connections)),
-)
-
-const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
+const routes = Layer.mergeAll(
+  HttpRouter.add("GET", "/setup/api/connections", connectionsResponse),
+  HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
+).pipe(HttpRouter.provideRequest(Layer.effect(Connections)(Connections)))
 
 /**
  * The Worker's HTTP handler: the Access gate over the operator path prefixes,
