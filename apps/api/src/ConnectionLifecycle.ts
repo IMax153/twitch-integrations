@@ -13,7 +13,12 @@ import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Semaphore from "effect/Semaphore"
 import { ConnectionStore } from "./ConnectionStore.ts"
-import { Provider, type ProviderRequestFailed, type TokenResponse } from "./Provider.ts"
+import {
+  Provider,
+  type ProviderRequestFailed,
+  type TokenResponse,
+  isClientRejection,
+} from "./Provider.ts"
 
 export interface ConnectionLifecycleService {
   /**
@@ -56,22 +61,17 @@ const dueForRefresh = (connection: Connection, now: DateTime.DateTime): boolean 
   DateTime.toEpochMillis(connection.expiresAt) - DateTime.toEpochMillis(now) <=
   Duration.toMillis(refreshThreshold)
 
-/**
- * Whether the Provider turned the refresh token down, as opposed to being
- * unreachable, rate limiting, or failing on its own side: any client error
- * other than a rate limit.
- */
-const rejectedRefreshToken = (failure: ProviderRequestFailed): boolean =>
-  failure.reason._tag === "Status" &&
-  failure.reason.status >= 400 &&
-  failure.reason.status < 500 &&
-  failure.reason.status !== 429
+/** A Connection that can be refreshed, with its refresh token to hand. */
+interface Refreshable {
+  readonly connection: Connection
+  readonly refreshToken: Redacted.Redacted<string>
+}
 
 /**
  * The Connection a token response produces, with the previous Connection
  * filling in what the response leaves out.
  */
-const installed = (
+const connectionFrom = (
   previous: Option.Option<Connection>,
   response: TokenResponse,
   connectedAccount: ConnectedAccount,
@@ -108,27 +108,28 @@ const make = Effect.gen(function* () {
   // queue behind one refresh rather than each starting their own.
   const lock = yield* Semaphore.make(1)
 
-  /** The Connection with a refresh token the Provider has not rejected. */
-  const readAuthorized: Effect.Effect<
-    Connection,
+  /**
+   * The Connection and the refresh token the Provider has not rejected. A
+   * stored Connection with no refresh token is treated as Reauthorization
+   * Required whatever its status says, since it can never be refreshed.
+   */
+  const readRefreshable: Effect.Effect<
+    Refreshable,
     ConnectionNotConfigured | ReauthorizationRequired
   > = Effect.gen(function* () {
-    const connection = yield* store.readConnection
-    if (Option.isNone(connection)) {
+    const stored = yield* store.readConnection
+    if (Option.isNone(stored)) {
       return yield* notConfigured
     }
-    if (connection.value.status === "Reauthorization Required") {
+    const connection = stored.value
+    if (
+      connection.status === "Reauthorization Required" ||
+      Option.isNone(connection.refreshToken)
+    ) {
       return yield* reauthorizationRequired
     }
-    return connection.value
+    return { connection, refreshToken: connection.refreshToken.value }
   })
-
-  const requireReauthorization = (
-    connection: Connection,
-  ): Effect.Effect<never, ReauthorizationRequired> =>
-    store
-      .writeConnection({ ...connection, status: "Reauthorization Required" })
-      .pipe(Effect.andThen(reauthorizationRequired))
 
   /** A rejected refresh token ends the Connection; any other failure is passed through. */
   const refreshFailed =
@@ -136,21 +137,23 @@ const make = Effect.gen(function* () {
     (
       failure: ProviderRequestFailed,
     ): Effect.Effect<never, ReauthorizationRequired | ProviderRequestFailed> =>
-      rejectedRefreshToken(failure) ? requireReauthorization(connection) : Effect.fail(failure)
+      isClientRejection(failure)
+        ? store
+            .writeConnection({ ...connection, status: "Reauthorization Required" })
+            .pipe(Effect.andThen(reauthorizationRequired))
+        : Effect.fail(failure)
 
   /** Contacts the Provider and installs the response. Runs under the lock. */
-  const refreshConnection = (
-    connection: Connection,
-  ): Effect.Effect<Connection, ReauthorizationRequired | ProviderRequestFailed> =>
+  const refreshConnection = ({
+    connection,
+    refreshToken,
+  }: Refreshable): Effect.Effect<Connection, ReauthorizationRequired | ProviderRequestFailed> =>
     Effect.gen(function* () {
-      if (Option.isNone(connection.refreshToken)) {
-        return yield* requireReauthorization(connection)
-      }
       const response = yield* provider
-        .refresh(connection.refreshToken.value)
+        .refresh(refreshToken)
         .pipe(Effect.catchTag("ProviderRequestFailed", refreshFailed(connection)))
       const now = yield* DateTime.now
-      const refreshed = installed(
+      const refreshed = connectionFrom(
         Option.some(connection),
         response,
         connection.connectedAccount,
@@ -160,35 +163,42 @@ const make = Effect.gen(function* () {
       return refreshed
     })
 
+  /** The stored token while it is fresh, otherwise whatever `onDue` makes of the Connection. */
+  const tokenUnlessDue = <E>(
+    onDue: (refreshable: Refreshable) => Effect.Effect<Redacted.Redacted<string>, E>,
+  ): Effect.Effect<
+    Redacted.Redacted<string>,
+    ConnectionNotConfigured | ReauthorizationRequired | E
+  > =>
+    Effect.gen(function* () {
+      const refreshable = yield* readRefreshable
+      const now = yield* DateTime.now
+      return dueForRefresh(refreshable.connection, now)
+        ? yield* onDue(refreshable)
+        : refreshable.connection.accessToken
+    })
+
   return ConnectionLifecycle.of({
     accept: (response, connectedAccount) =>
       lock.withPermit(
         Effect.gen(function* () {
           const previous = yield* store.readConnection
           const now = yield* DateTime.now
-          const connection = installed(previous, response, connectedAccount, now)
+          const connection = connectionFrom(previous, response, connectedAccount, now)
           yield* store.writeConnection(connection)
           return connection
         }),
       ),
-    refresh: lock.withPermit(Effect.flatMap(readAuthorized, refreshConnection)),
-    requestAccessToken: Effect.gen(function* () {
-      const connection = yield* readAuthorized
-      if (!dueForRefresh(connection, yield* DateTime.now)) {
-        return connection.accessToken
-      }
-      // NOTE: rechecked under the lock: a request that waited behind a
-      // refresh finds the new token and must not refresh again.
-      return yield* lock.withPermit(
-        Effect.gen(function* () {
-          const current = yield* readAuthorized
-          if (!dueForRefresh(current, yield* DateTime.now)) {
-            return current.accessToken
-          }
-          return (yield* refreshConnection(current)).accessToken
-        }),
-      )
-    }),
+    refresh: lock.withPermit(Effect.flatMap(readRefreshable, refreshConnection)),
+    // NOTE: checked again under the lock: a request that waited behind a
+    // refresh finds the new token and must not refresh again.
+    requestAccessToken: tokenUnlessDue(() =>
+      lock.withPermit(
+        tokenUnlessDue((refreshable) =>
+          Effect.map(refreshConnection(refreshable), (refreshed) => refreshed.accessToken),
+        ),
+      ),
+    ),
   })
 })
 

@@ -274,7 +274,7 @@ export class FakeProviders extends Context.Service<FakeProviders, FakeProvidersS
   "@twitch-integrations/api/test/FakeProviders",
 ) {
   /** The Provider Credentials the fake token endpoints accept. */
-  static readonly credentials: Layer.Layer<ProviderCredentials> = credentials
+  static readonly layerCredentials: Layer.Layer<ProviderCredentials> = credentials
   /** Both the control service and the `HttpClient` routed to the fakes, built together. */
   static readonly layer: Layer.Layer<FakeProviders | HttpClient.HttpClient> = Layer.effectContext(
     Effect.map(make, ({ service, client }) =>

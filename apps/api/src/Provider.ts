@@ -71,6 +71,18 @@ export class ProviderRequestFailed extends Data.TaggedError("ProviderRequestFail
   readonly reason: ProviderFailureReason
 }> {}
 
+/**
+ * Whether the Provider turned the request itself down, as opposed to being
+ * unreachable, rate limiting, or failing on its own side: any client error
+ * other than a rate limit. For a refresh, this means the refresh token is
+ * no good.
+ */
+export const isClientRejection = (failure: ProviderRequestFailed): boolean =>
+  failure.reason._tag === "Status" &&
+  failure.reason.status >= 400 &&
+  failure.reason.status < 500 &&
+  failure.reason.status !== 429
+
 const failureReason = (
   cause: HttpClientError.HttpClientError | Schema.SchemaError,
 ): ProviderFailureReason => {

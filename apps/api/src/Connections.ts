@@ -36,7 +36,9 @@ export interface ConnectionsService {
   ) => Effect.Effect<BroadcasterResult>
   /**
    * A valid access token for the Provider's Connection, refreshed by the
-   * object first when it is about to expire.
+   * object first when it is about to expire. In production a failure arrives
+   * over the RPC as a plain object carrying the error's tag and fields, not
+   * an instance, so callers match on `_tag` rather than `instanceof`.
    */
   readonly getAccessToken: (
     provider: ProviderName,

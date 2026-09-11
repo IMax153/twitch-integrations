@@ -39,7 +39,7 @@ const lifecycleLayer = ConnectionLifecycle.layer.pipe(
   Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
   Layer.provide(Provider.layer("spotify")),
   Layer.provide(FakeProviders.layer),
-  Layer.provide(FakeProviders.credentials),
+  Layer.provide(FakeProviders.layerCredentials),
 )
 
 const withLifecycle = <A, E>(

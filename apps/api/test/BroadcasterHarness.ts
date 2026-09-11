@@ -82,7 +82,7 @@ const inMemoryObject = (provider: ProviderName, httpClient: Layer.Layer<HttpClie
   Layer.build(
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
-      Layer.provide(FakeProviders.credentials),
+      Layer.provide(FakeProviders.layerCredentials),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(httpClient),
     ),

@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { Connection } from "@twitch-integrations/domain/Connection"
+import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import {
   ConnectionNotConfigured,
   ReauthorizationRequired,
@@ -14,17 +15,18 @@ import * as TestClock from "effect/testing/TestClock"
 import { type ProviderFailureReason, ProviderRequestFailed } from "../src/Provider.ts"
 import { makeBroadcasterWorld } from "./BroadcasterHarness.ts"
 import type { TokenEndpoint } from "./FakeProviders.ts"
-import { authorizedConnection, grantedScenario } from "./fixtures.ts"
+import { authorizedConnection, grantedScenario, pendingAttempt } from "./fixtures.ts"
 
 const at = (iso: string) => TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(iso)))
 
-/** A world at 12:55, holding a Spotify Connection whose token has five minutes left. */
-const worldDueForRefresh = Effect.gen(function* () {
-  const world = yield* makeBroadcasterWorld
-  yield* at("2026-09-11T12:55:00Z")
-  yield* world.stores.spotify.writeConnection(authorizedConnection)
-  return world
-})
+/** A world at 12:55, holding a Connection for the Provider whose token has five minutes left. */
+const worldDueForRefresh = (provider: ProviderName = "spotify") =>
+  Effect.gen(function* () {
+    const world = yield* makeBroadcasterWorld
+    yield* at("2026-09-11T12:55:00Z")
+    yield* world.stores[provider].writeConnection(authorizedConnection)
+    return world
+  })
 
 /** What a refresh response may leave out, and so must carry over from the previous Connection. */
 const carriedOver = (connection: Connection) => ({
@@ -91,9 +93,7 @@ describe("ConnectionObject.getAccessToken", () => {
 
   it.effect("refreshes, persists, and returns the new token with five minutes left", () =>
     Effect.gen(function* () {
-      const world = yield* makeBroadcasterWorld
-      yield* at("2026-09-11T12:55:00Z")
-      yield* world.stores.spotify.writeConnection(authorizedConnection)
+      const world = yield* worldDueForRefresh()
       yield* world.providers.set("spotify", grantedScenario)
       const token = yield* world.objects.spotify.getAccessToken()
       assert.strictEqual(token, "granted-access-token")
@@ -125,9 +125,7 @@ describe("ConnectionObject.getAccessToken", () => {
 
   it.effect("refreshes with Twitch using the Credentials in the form body", () =>
     Effect.gen(function* () {
-      const world = yield* makeBroadcasterWorld
-      yield* at("2026-09-11T12:55:00Z")
-      yield* world.stores.twitch.writeConnection(authorizedConnection)
+      const world = yield* worldDueForRefresh("twitch")
       yield* world.providers.set("twitch", grantedScenario)
       const token = yield* world.objects.twitch.getAccessToken()
       assert.strictEqual(token, "granted-access-token")
@@ -146,7 +144,7 @@ describe("ConnectionObject.getAccessToken", () => {
 
   it.effect("keeps the previous refresh token and scopes when the refresh omits them", () =>
     Effect.gen(function* () {
-      const world = yield* worldDueForRefresh
+      const world = yield* worldDueForRefresh()
       yield* world.providers.set("spotify", {
         ...grantedScenario,
         token: {
@@ -175,7 +173,7 @@ describe("ConnectionObject.getAccessToken", () => {
 
   it.effect("becomes Reauthorization Required when the Provider rejects the refresh token", () =>
     Effect.gen(function* () {
-      const world = yield* worldDueForRefresh
+      const world = yield* worldDueForRefresh()
       yield* world.providers.set("spotify", {
         ...grantedScenario,
         token: { _tag: "Status", status: 400 },
@@ -197,7 +195,7 @@ describe("ConnectionObject.getAccessToken", () => {
     "reports $name and leaves the Connection as it was",
     ({ token, reason }) =>
       Effect.gen(function* () {
-        const world = yield* worldDueForRefresh
+        const world = yield* worldDueForRefresh()
         yield* world.providers.set("spotify", { ...grantedScenario, token })
         const exit = yield* Effect.exit(world.objects.spotify.getAccessToken())
         assert.deepStrictEqual(
@@ -215,7 +213,7 @@ describe("ConnectionObject.getAccessToken", () => {
 
   it.effect("shares one in-flight refresh between concurrent requests", () =>
     Effect.gen(function* () {
-      const world = yield* worldDueForRefresh
+      const world = yield* worldDueForRefresh()
       yield* world.providers.set("spotify", { ...grantedScenario, latency: "1 second" })
       const first = yield* Effect.forkChild(world.objects.spotify.getAccessToken(), {
         startImmediately: true,
@@ -227,6 +225,56 @@ describe("ConnectionObject.getAccessToken", () => {
       const tokens = yield* Effect.all([Fiber.join(first), Fiber.join(second)])
       assert.deepStrictEqual(tokens, ["granted-access-token", "granted-access-token"])
       assert.strictEqual((yield* world.providers.received).length, 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("lets a reconnect wait for an in-flight refresh rather than interleave", () =>
+    Effect.gen(function* () {
+      const world = yield* worldDueForRefresh()
+      yield* world.stores.spotify.createAttempt({
+        ...pendingAttempt,
+        expiresAt: DateTime.makeUnsafe("2026-09-11T13:05:00Z"),
+      })
+      yield* world.providers.set("spotify", { ...grantedScenario, latency: "1 second" })
+      const refresh = yield* Effect.forkChild(world.objects.spotify.getAccessToken(), {
+        startImmediately: true,
+      })
+      // The reconnect's exchange answers at once with different tokens, so
+      // whichever write lands last decides what the Connection holds.
+      yield* world.providers.set("spotify", {
+        token: {
+          _tag: "Grant",
+          grant: {
+            accessToken: "reconnect-access-token",
+            refreshToken: Option.some("reconnect-refresh-token"),
+            expiresIn: 3600,
+            scopes: Option.some(["scope-c"]),
+          },
+        },
+        account: { id: "account-2", displayName: "Max again" },
+      })
+      const { state, provider, callbackUri, broadcaster } = pendingAttempt
+      const reconnect = yield* Effect.forkChild(
+        world.objects.spotify.completeAuthorization(
+          { state, provider, callbackUri, broadcaster },
+          "code-1",
+        ),
+        { startImmediately: true },
+      )
+      yield* TestClock.adjust("1 second")
+      const outcomes = yield* Effect.all([Fiber.join(refresh), Fiber.join(reconnect)])
+      assert.deepStrictEqual(outcomes, ["granted-access-token", "connected"])
+      const stored = yield* world.stores.spotify.readConnection
+      assert.deepStrictEqual(
+        Option.map(stored, (connection) => ({
+          accessToken: connection.accessToken,
+          connectedAccount: connection.connectedAccount,
+        })),
+        Option.some({
+          accessToken: Redacted.make("reconnect-access-token"),
+          connectedAccount: { id: "account-2", displayName: "Max again" },
+        }),
+      )
     }).pipe(Effect.scoped),
   )
 })
