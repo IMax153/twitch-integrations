@@ -1,0 +1,13 @@
+{
+  "name": "@twitch-integrations/infra",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  }
+}
