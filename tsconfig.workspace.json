@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": ["alchemy.run.ts", "vite.config.ts"],
+  "references": [
+    { "path": "apps/api" },
+    { "path": "apps/infra" }
+  ]
+}

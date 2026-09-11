@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.base.json",
+  "references": [{ "path": "tsconfig.workspace.json" }],
+  "include": [
+    "vite.config.ts",
+    "scripts/*.ts",
+    "**/vitest.*.ts", // All vitest config files across all packages
+    "./apps/**/*.ts",
+    "./apps/**/*.json",
+    "./packages/*/test/**/*.ts",
+    "./packages/*/test/**/*.json",
+    "./tools/*/test/**/*.ts",
+    "./tools/*/test/**/*.json"
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**"],
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": false,
+    "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": false,
+    "types": ["node"]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "twitch-integrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "effect-tsgo patch --oxlint"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/tsgo": "catalog:",
+    "@foldkit/oxlint-plugin": "catalog:",
+    "@twitch-integrations/api": "workspace:^",
+    "@twitch-integrations/infra": "workspace:^",
+    "@types/node": "catalog:",
+    "alchemy": "catalog:",
+    "effect": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.20.0"
+}
