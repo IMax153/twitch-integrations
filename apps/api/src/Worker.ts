@@ -19,14 +19,15 @@ import { ProviderCredentials } from "./ProviderCredentials.ts"
 const devPort = 1337
 
 /**
- * A defect reaching the platform is rendered as `[object Object]` when it is
- * not an Error, which is how an object failure arrives over the Durable
- * Object RPC. Logging it first keeps the cause readable.
+ * A failure reaching the platform is rendered as `[object Object]` when it is
+ * not an Error: Effect's `ConfigError` is a plain class, and an object
+ * failure arrives over the Durable Object RPC as plain data. Logging it
+ * first keeps the cause readable.
  */
-const logDefect = (defect: unknown) =>
+const logFailure = (failure: unknown) =>
   Effect.logError(
-    "Request failed with a defect",
-    defect instanceof Error ? (defect.stack ?? defect.message) : JSON.stringify(defect),
+    "Worker failure",
+    failure instanceof Error ? (failure.stack ?? failure.message) : JSON.stringify(failure),
   )
 
 /**
@@ -38,9 +39,6 @@ const logDefect = (defect: unknown) =>
 export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
   "Worker",
   Effect.gen(function* () {
-    // Yielding the Credentials here registers them as this Worker's secrets;
-    // the Connection object reads the bound values when it starts.
-    yield* ProviderCredentials.config
     return {
       main: import.meta.url,
       domain: { name: broadcasterHostname, zoneName },
@@ -51,7 +49,12 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     }
   }),
   Effect.gen(function* () {
+    // Alchemy intercepts Config reads in this Effect, not in the props above:
+    // at plan time each read is bound onto the Worker as a secret, and at
+    // runtime it resolves from that binding. The Connection object reads the
+    // same names from the bound environment when it starts.
+    yield* ProviderCredentials.config.pipe(Effect.tapError(logFailure))
     const fetch = yield* BroadcasterHttp.pipe(Effect.provide(Connections.layer))
-    return { fetch: Effect.tapDefect(fetch, logDefect) }
+    return { fetch: Effect.tapDefect(fetch, logFailure) }
   }),
 ) {}

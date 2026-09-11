@@ -25,10 +25,10 @@ const config: Config.Config<ProviderCredentialsService> = Config.all({
 const make = Effect.orDie(config)
 
 /**
- * Both Providers' Credentials as redacted config. The Worker init yields
- * `config` so Alchemy registers the four values as Worker secrets; the
- * Connection object builds `layer` from the same config at runtime, where
- * Alchemy resolves it from the bound environment.
+ * Both Providers' Credentials as redacted config. The Worker's runtime Effect
+ * yields `config` so Alchemy registers the four values as Worker secrets at
+ * plan time; the Connection object builds `layer` from the same config at
+ * runtime, where Alchemy resolves it from the bound environment.
  */
 export class ProviderCredentials extends Context.Service<
   ProviderCredentials,
