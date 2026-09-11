@@ -18,6 +18,9 @@ catalogs:
     '@effect/tsgo':
       specifier: ^0.38.0
       version: 0.38.0
+    '@effect/vitest':
+      specifier: 4.0.0-rc.113
+      version: 4.0.0-rc.113
     '@foldkit/oxlint-plugin':
       specifier: ^0.12.0
       version: 0.12.0
@@ -110,6 +113,9 @@ importers:
       '@effect/sql-sqlite-node':
         specifier: 'catalog:'
         version: 4.0.0-rc.113(effect@4.0.0-rc.113)
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)(vitest@4.1.11)
 
   apps/infra:
     dependencies:
@@ -431,6 +437,12 @@ packages:
 
   '@effect/vitest@4.0.0-rc.112':
     resolution: {integrity: sha512-mEKh/FI64mt8JK1/v9mpOrJYdnp+UFZdRUBMEdZMiKz7klg6NPqVgg/oeAGH6wOOQc2iAPcfc2H9BbAv1KyzMQ==}
+    peerDependencies:
+      effect: 4.0.0-rc.113
+      vitest: 4.1.11
+
+  '@effect/vitest@4.0.0-rc.113':
+    resolution: {integrity: sha512-ebuPhtZmumq1967n0vgF0sgAx/8tRHMmNGOdH1Oya1jKzV2Yoqhlv8WCGT0N//PuaV/Pc/zky3mmDvxmW81FiQ==}
     peerDependencies:
       effect: 4.0.0-rc.113
       vitest: 4.1.11
@@ -2873,6 +2885,11 @@ snapshots:
       '@effect/tsgo-win32-x64': 0.38.0
 
   '@effect/vitest@4.0.0-rc.112(effect@4.0.0-rc.113)(vitest@4.1.11)':
+    dependencies:
+      effect: 4.0.0-rc.113
+      vitest: 4.1.11(@types/node@24.13.3)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))
+
+  '@effect/vitest@4.0.0-rc.113(effect@4.0.0-rc.113)(vitest@4.1.11)':
     dependencies:
       effect: 4.0.0-rc.113
       vitest: 4.1.11(@types/node@24.13.3)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))

@@ -1,23 +1,27 @@
 import * as Cloudflare from "alchemy/Cloudflare"
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { OperatorHttp } from "./OperatorRoutes.ts"
+
+/** The fixed Access `user_uuid` the simulated Operator carries under `alchemy dev`. */
+const devOperatorUserUuid = "00000000-0000-4000-8000-000000000001"
 
 export default Cloudflare.Worker(
   "Worker",
   {
     main: import.meta.url,
+    dev: {
+      access: {
+        aud: "dev",
+        identity: {
+          email: Config.String("TWITCH_CHANNEL_OWNER_EMAIL"),
+          user_uuid: devOperatorUserUuid,
+        },
+      },
+    },
   },
   Effect.gen(function* () {
-    return {
-      fetch: Effect.gen(function* () {
-        const access = yield* Cloudflare.Access.Context
-
-        if (access === undefined) {
-          return HttpServerResponse.text("Access required", { status: 403 })
-        }
-
-        return HttpServerResponse.text("Hello, world!")
-      }),
-    }
+    const fetch = yield* OperatorHttp
+    return { fetch }
   }),
 )

@@ -10,6 +10,7 @@ catalog:
   "@effect/sql-sqlite-do": 4.0.0-rc.113
   "@effect/sql-sqlite-node": 4.0.0-rc.113
   "@effect/tsgo": ^0.38.0
+  "@effect/vitest": 4.0.0-rc.113
   "@foldkit/oxlint-plugin": ^0.12.0
   "@types/node": ^24.13.3
   alchemy: 2.0.0-beta.77
@@ -37,6 +38,7 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - "@effect/sql-sqlite-do@4.0.0-rc.113"
   - "@effect/sql-sqlite-node@4.0.0-rc.113"
+  - "@effect/vitest@4.0.0-rc.113"
   - effect@4.0.0-rc.113
   - "@aws-sdk/core@3.978.0"
   - "@aws-sdk/credential-provider-env@3.972.71"
