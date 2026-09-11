@@ -4,14 +4,14 @@
 
 **Blocked by:** 06 (Callback failure outcomes), 08 (Proactive refresh alarm and retry policy)
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] `.env.example` lists every Credential the Worker and Access application read
 - [x] Root package scripts run `alchemy dev` with no stage and `alchemy deploy --stage production`
 - [x] The README documents local setup, the callback URIs to register, and the deploy command
 - [x] Human steps: register the local (`http://127.0.0.1:5173`) and production (`https://twitch-integrations.minbadblue.com`) callback URIs from the README on the Spotify and Twitch developer applications, one application per Provider
-- [ ] Human steps: run `alchemy dev`, open the Broadcaster Page, complete consent for both Providers, confirm Authorized with the expected Connected Account
-- [ ] Human steps: wait past the refresh threshold locally or shorten expiry via the fake transport and confirm a refresh occurs
+- [x] Human steps: run `alchemy dev`, open the Broadcaster Page, complete consent for both Providers, confirm Authorized with the expected Connected Account
+- [x] Human steps: wait past the refresh threshold locally or shorten expiry via the fake transport and confirm a refresh occurs
 - [x] Deploy to the `production` stage, confirm the Access login is required, complete consent for both Providers, and confirm both Connections show Authorized with next refresh scheduled
 - [x] Any defect found is fixed in this ticket or recorded as a new ticket
 
@@ -46,3 +46,5 @@ Production consent (2026-09-11): the Twitch consent URL the Worker built is corr
 Hostname (2026-09-11): renamed to `stream.minbadblue.com` to leave the Provider brand out of the domain, after Chrome's Safe Browsing flagged the Spotify authorize route on the old name. `apps/infra/src/Domain.ts`, the README's callback URIs, and an amendment to ADR 0002 carry the change; the production plan replaces only the API Worker's custom domain and the two routes. The Broadcaster registers the new production callback URIs on both Providers and deploys.
 
 Outcome (2026-09-11): both Connections are Authorized in production on `stream.minbadblue.com` after the Twitch client id was corrected and the callback URIs re-registered. Not confirmed by the Broadcaster: a full local authorization after the proxy host fix, and a refresh observed to happen (locally or in production) once the first scheduled refresh time passes. Both remain on this ticket as the last two human boxes.
+
+Closed 2026-09-11: the Broadcaster confirmed a local authorization after the proxy host fix and a refresh observed in production. Follow-ups done on the same day: the object re-arms its alarm from the stored next refresh time when it is constructed; the old hostname no longer resolves, so no Safe Browsing report is needed; the glossary's Connection entry now names the refresh schedule and the Refresh Error. The Broadcaster removes the old callback URIs from the Provider applications.

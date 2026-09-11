@@ -76,6 +76,11 @@ export interface BroadcasterWorld {
   readonly providers: FakeProvidersService
   /** Each object's fake alarm, one per Provider as each object has its own. */
   readonly alarms: Record<ProviderName, FakeRefreshAlarmService>
+  /**
+   * A new object over the Provider's existing storage and alarm, as workerd
+   * builds one after evicting the previous instance.
+   */
+  readonly rebuildObject: (provider: ProviderName) => Effect.Effect<ConnectionObjectShape>
 }
 
 /**
@@ -113,9 +118,9 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       inMemoryObject(provider, Layer.succeedContext(fakes), Layer.succeedContext(alarms[provider])),
     )
     const stores = Record.map(services, Context.get(ConnectionStore))
-    const objects = yield* perProvider((provider) =>
-      makeConnectionObject(provider).pipe(Effect.provide(services[provider])),
-    )
+    const rebuildObject = (provider: ProviderName) =>
+      makeConnectionObject(provider).pipe(Effect.provide(services[provider]))
+    const objects = yield* perProvider(rebuildObject)
     const connections = Layer.succeed(
       Connections,
       Connections.fromObjects((provider) => objects[provider]),
@@ -153,6 +158,7 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       objects,
       providers,
       alarms: Record.map(alarms, Context.get(FakeRefreshAlarm)),
+      rebuildObject,
     }
   },
 )

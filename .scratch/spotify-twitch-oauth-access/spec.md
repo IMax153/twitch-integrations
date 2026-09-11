@@ -1,6 +1,6 @@
 # Spotify and Twitch OAuth connections behind Cloudflare Access
 
-Status: ready-for-agent
+Status: done
 
 ## Problem statement
 

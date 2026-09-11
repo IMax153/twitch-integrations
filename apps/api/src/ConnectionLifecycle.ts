@@ -64,6 +64,13 @@ export interface ConnectionLifecycleService {
    * error, so the platform's own alarm retry only ever answers a defect.
    */
   readonly runScheduledRefresh: Effect.Effect<void>
+  /**
+   * Arms the alarm for the stored next refresh time, if there is one. Run
+   * when the object is built, so a schedule written by an instance that died
+   * before arming its alarm is still honoured; arming for a time already
+   * armed changes nothing.
+   */
+  readonly resumeSchedule: Effect.Effect<void>
 }
 
 /**
@@ -272,6 +279,16 @@ const make = Effect.gen(function* () {
       )
     })
 
+  const resumeSchedule: Effect.Effect<void> = lock.withPermit(
+    Effect.gen(function* () {
+      const stored = yield* store.readConnection
+      const nextRefreshAt = Option.flatMap(stored, (connection) => connection.nextRefreshAt)
+      if (Option.isSome(nextRefreshAt)) {
+        yield* alarm.schedule(nextRefreshAt.value)
+      }
+    }),
+  )
+
   const runScheduledRefresh: Effect.Effect<void> = lock.withPermit(
     Effect.gen(function* () {
       const stored = yield* store.readConnection
@@ -341,6 +358,7 @@ const make = Effect.gen(function* () {
       ),
     ),
     runScheduledRefresh,
+    resumeSchedule,
   })
 })
 

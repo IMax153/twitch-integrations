@@ -25,8 +25,12 @@ A Provider's client ID and client secret, issued to the Broadcaster's developer 
 _Avoid_: App keys, API keys, tokens
 
 **Connection**:
-The one stored account authorization per Provider, holding the access token, refresh token, granted scopes, and expiry. Its status is Not Configured, Authorized, or Reauthorization Required.
+The one stored account authorization per Provider, holding the access token, refresh token, granted scopes, expiry, the time of its next scheduled refresh, and its last Refresh Error. Its status is Not Configured, Authorized, or Reauthorization Required.
 _Avoid_: Token state, session, account link
+
+**Refresh Error**:
+What a Connection remembers of its most recent failed refresh: a message and the time it failed. The next successful refresh clears it.
+_Avoid_: Failure, exception, last error
 
 **Authorization Attempt**:
 A one-use record created when the Broadcaster starts a Provider authorization. It is keyed by a random state value, bound to the Broadcaster's Access identity, and expires after ten minutes.

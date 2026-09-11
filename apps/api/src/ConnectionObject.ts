@@ -112,6 +112,8 @@ export const makeConnectionObject = (
     const store = yield* ConnectionStore
     const flow = yield* AuthorizationFlow
     const lifecycle = yield* ConnectionLifecycle
+    // A rebuilt object honours the schedule its predecessor stored.
+    yield* lifecycle.resumeSchedule
     const summary = (connection: Option.Option<Connection>): ConnectionSummary =>
       Option.match(connection, {
         onNone: () => ({

@@ -611,3 +611,35 @@ describe("ConnectionObject.alarm", () => {
     }).pipe(Effect.scoped),
   )
 })
+
+describe("ConnectionObject construction", () => {
+  it.effect("re-arms the alarm for the stored next refresh time", () =>
+    Effect.gen(function* () {
+      const world = yield* makeBroadcasterWorld
+      yield* at("2026-09-11T12:30:00Z")
+      // The previous instance stored the schedule but died before arming it.
+      yield* world.stores.spotify.writeConnection(authorizedConnection)
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+      yield* world.rebuildObject("spotify")
+      assert.deepStrictEqual(
+        yield* world.alarms.spotify.armedFor,
+        Option.some(time("2026-09-11T12:55:00Z")),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("leaves the alarm alone when nothing is scheduled", () =>
+    Effect.gen(function* () {
+      const world = yield* makeBroadcasterWorld
+      yield* world.stores.spotify.writeConnection({
+        ...authorizedConnection,
+        status: "Reauthorization Required",
+        nextRefreshAt: Option.none(),
+      })
+      yield* world.rebuildObject("spotify")
+      assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
+      yield* world.rebuildObject("twitch")
+      assert.deepStrictEqual(yield* world.alarms.twitch.armedFor, Option.none())
+    }).pipe(Effect.scoped),
+  )
+})
