@@ -19,6 +19,17 @@ import { ProviderCredentials } from "./ProviderCredentials.ts"
 const devPort = 1337
 
 /**
+ * A defect reaching the platform is rendered as `[object Object]` when it is
+ * not an Error, which is how an object failure arrives over the Durable
+ * Object RPC. Logging it first keeps the cause readable.
+ */
+const logDefect = (defect: unknown) =>
+  Effect.logError(
+    "Request failed with a defect",
+    defect instanceof Error ? (defect.stack ?? defect.message) : JSON.stringify(defect),
+  )
+
+/**
  * The API Worker owns the broadcaster hostname as its custom domain, so every
  * path not routed to another Worker lands here. The `/setup/api*` route is
  * more specific than the web Worker's `/setup*` route, so the page's JSON
@@ -41,6 +52,6 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
   }),
   Effect.gen(function* () {
     const fetch = yield* BroadcasterHttp.pipe(Effect.provide(Connections.layer))
-    return { fetch }
+    return { fetch: Effect.tapDefect(fetch, logDefect) }
   }),
 ) {}
