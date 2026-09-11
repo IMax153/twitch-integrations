@@ -2,11 +2,13 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import { operatorIdentity, sendOperatorRequest } from "./OperatorHarness.ts"
 
-const get = (path: string, options?: { readonly identity?: typeof operatorIdentity }) =>
-  sendOperatorRequest(new Request(`https://worker.example${path}`), options)
+type SendOptions = { readonly identity?: typeof operatorIdentity }
 
-const post = (path: string, options?: { readonly identity?: typeof operatorIdentity }) =>
-  sendOperatorRequest(new Request(`https://worker.example${path}`, { method: "POST" }), options)
+const send = (method: "GET" | "POST", path: string, options?: SendOptions) =>
+  sendOperatorRequest(new Request(`https://worker.example${path}`, { method }), options)
+
+const get = (path: string, options?: SendOptions) => send("GET", path, options)
+const post = (path: string, options?: SendOptions) => send("POST", path, options)
 
 const section = (html: string, provider: string) => {
   const match = html.match(
@@ -51,11 +53,11 @@ describe("Operator Page", () => {
         ["spotify", "Spotify"],
         ["twitch", "Twitch"],
       ]) {
-        const html_ = section(html, provider)
-        assert.include(html_, `<h2>${label}</h2>`)
-        assert.include(html_, "Not Configured")
-        assert.include(html_, `<form method="post" action="/oauth/${provider}/authorize">`)
-        assert.include(html_, ">Connect<")
+        const sectionHtml = section(html, provider)
+        assert.include(sectionHtml, `<h2>${label}</h2>`)
+        assert.include(sectionHtml, "Not Configured")
+        assert.include(sectionHtml, `<form method="post" action="/oauth/${provider}/authorize">`)
+        assert.include(sectionHtml, ">Connect<")
       }
     }),
   )

@@ -11,8 +11,9 @@ import { OperatorResult } from "./OperatorResult.ts"
 
 /**
  * Path prefixes the Cloudflare Access application covers. Every request under
- * them must carry an Access context; the check fails closed so a misconfigured
- * application refuses rather than admits.
+ * them must carry an Access context. The match is a plain string prefix on
+ * purpose: it fails closed, so a path like `/setupx` is refused rather than
+ * admitted, and no route is registered on such a path anyway.
  */
 const operatorPathPrefixes = ["/setup", "/oauth"]
 
@@ -40,6 +41,10 @@ const accessRequired = HttpServerResponse.text("Access required", { status: 403 
 /**
  * The Worker's HTTP handler: the Access gate over the operator path prefixes,
  * then the router.
+ *
+ * The router layer is built once and its scope closed immediately. That is
+ * fine while the router holds no scoped resources; a scoped middleware or
+ * service added to `routes` would need this scope to outlive the handler.
  */
 export const OperatorHttp = HttpRouter.toHttpEffect(routes).pipe(
   Effect.map((router) =>
