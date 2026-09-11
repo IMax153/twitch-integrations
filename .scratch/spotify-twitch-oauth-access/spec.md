@@ -65,8 +65,8 @@ An Operator Page at `/setup`, reachable only through the existing Cloudflare Acc
 
 - A new `packages/domain` workspace package holds Effect Schema definitions only. It exports `ProviderName`, `ConnectionStatus`, `Connection`, `ConnectedAccount`, `AuthorizationAttempt`, `OperatorIdentity`, `ConnectionSummary` (the JSON the Operator Page reads), `OperatorResult` (the result query parameter values), and Schema tagged errors. It imports nothing from Cloudflare or Alchemy.
 - All services, their live layers, Provider wire-format schemas, and the Durable Object live in the existing `apps/api` package.
-- The Operator Page is a Foldkit application in a separate `apps/web` workspace package. Vite builds it under the `/setup/` base path, and the api Worker ships the build as its static assets and serves it under `/setup`. See ADR 0001.
-- The existing Access resources in `apps/infra` are unchanged. They cover the `/setup` and `/oauth` path prefixes. Routes outside those prefixes remain public.
+- The Operator Page is a Foldkit application in a separate `apps/web` workspace package. Vite builds it under the `/setup/` base path, and Alchemy's Foldkit integration deploys it as its own assets-only Worker on the `/setup*` route of `twitch-integrations.minbadblue.com`. The api Worker owns that hostname as its custom domain and keeps the `/setup/api*` route. See ADR 0002.
+- The Access application in `apps/infra` has no hostname. Both Workers enroll in it through their `access` prop, which is what populates `ctx.access`. Access therefore covers each Worker entirely; a future public route lives on a separate Worker or hostname. The Worker-side 403 on the `/setup` and `/oauth` prefixes stays as the fail-closed backstop.
 - Root package scripts run `alchemy dev` with no stage and `alchemy deploy --stage production`.
 
 ### Domain model
@@ -81,9 +81,9 @@ An Operator Page at `/setup`, reachable only through the existing Cloudflare Acc
 
 - One Durable Object class, one instance per Provider, addressed by Provider name. It is declared with Alchemy's Effect-native Durable Object constructor and yielded in the Worker's init so the binding is registered automatically.
 - The Durable Object hosts the entire layer graph. It exposes RPC methods to start an Authorization Attempt, complete one, get a valid access token, and describe the Connection for the Operator Page. It also owns the alarm handler.
-- The Worker is thin. It routes HTTP with Effect's `HttpRouter`, reads the Access identity, serves the Operator Page assets, answers the page's JSON requests, and calls the Durable Object through a Worker-side Connections service that wraps the namespace RPC. Every request runs through the Worker before the asset layer, so the Access gate applies to the page's own files.
+- The api Worker is thin. It routes HTTP with Effect's `HttpRouter`, reads the Access identity, answers the page's JSON requests, and calls the Durable Object through a Worker-side Connections service that wraps the namespace RPC.
 - Provider Credentials are read as `Config.Redacted` in the Worker init, named `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `TWITCH_CLIENT_ID`, and `TWITCH_CLIENT_SECRET`, and forwarded to the Durable Object. The Access application already reads `TWITCH_CHANNEL_OWNER_EMAIL`.
-- Local development sets the Worker's dev Access option with the channel owner email and a fixed dev `user_uuid`, so the Access context resolves under `alchemy dev`.
+- Local development sets the api Worker's dev Access option with the channel owner email and a fixed dev `user_uuid`, so the Access context resolves under `alchemy dev`. The web dev server proxies `/setup/api` and `/oauth` to the api Worker on port 1337.
 
 ### Services inside the Durable Object
 
@@ -96,11 +96,11 @@ An Operator Page at `/setup`, reachable only through the existing Cloudflare Acc
 
 ### HTTP contract
 
-- `GET /setup`, and any path under it outside `/setup/api`, serves the Operator Page: a static file when one matches, otherwise the app shell. The app reads an optional result query parameter in the browser and renders it as a success or error message.
+- `GET /setup`, and any path under it outside `/setup/api`, is served by the web Worker: a static file when one matches, otherwise the app shell. The app reads an optional result query parameter in the browser and renders it as a success or error message.
 - `GET /setup/api/connections` returns a JSON array of `ConnectionSummary`, one per Provider, which the page renders as its sections.
 - `POST /oauth/{provider}/authorize` starts an attempt for the current Access identity and responds with a redirect to the Provider consent screen.
 - `GET /oauth/{provider}/callback` completes the attempt and responds with a redirect to `/setup` carrying a result parameter. Every outcome, including denial, expiry, mismatch, and exchange failure, is a redirect with a distinct result value.
-- Every route under `/setup` and `/oauth` responds with 403 when the Access context is absent.
+- Every route under `/setup` and `/oauth` on the api Worker responds with 403 when the Access context is absent.
 - The callback URI is built from the incoming request's origin plus the fixed callback path.
 - Responses never include access or refresh tokens.
 
@@ -112,7 +112,7 @@ An Operator Page at `/setup`, reachable only through the existing Cloudflare Acc
 
 A good test drives the system from the outside and asserts on observable results: the HTTP response, what the fake Provider received, and what a later request observes. Tests never inspect internal state, never mock modules, and substitute behavior only by providing a different Effect layer.
 
-- Primary surface: HTTP requests through the Worker's fetch handler using Alchemy's request bridge with a fake execution context, a fake Access identity, and a fake assets service. This covers the JSON route, asset serving, authorize, callback, identity binding, and the 403 gate.
+- Primary surface: HTTP requests through the api Worker's fetch handler using Alchemy's request bridge with a fake execution context and a fake Access identity. This covers the JSON route, authorize, callback, identity binding, and the 403 gate.
 - The Operator Page's update and view are covered by Foldkit's story and scene tests in `apps/web`, with no browser.
 - Three substitutions make that run without workerd:
   1. A closed fake `HttpClient` that routes by hostname to fake Spotify and Twitch endpoints, refuses any unknown origin, and takes its scenario from a control service the test sets. Scenarios include success, denied consent, rotated refresh token, omitted refresh token, rate limit, network failure, non-rate-limit client error, and malformed response.

@@ -3,7 +3,8 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 
 import ApiWorker from "@twitch-integrations/api/Worker"
-import { CloudflareAccess } from "@twitch-integrations/infra/Access"
+import { CloudflareAccess, OperatorAccess } from "@twitch-integrations/infra/Access"
+import { WebSite } from "@twitch-integrations/infra/Web"
 
 export default Alchemy.Stack(
   "TwitchIntegrations",
@@ -12,15 +13,16 @@ export default Alchemy.Stack(
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
-    const apiWorker = yield* ApiWorker
+    const access = yield* CloudflareAccess
+    const provideAccess = Effect.provideService(OperatorAccess, access)
 
-    const access = yield* CloudflareAccess.pipe(
-      Effect.provideService(Cloudflare.Worker.Self, apiWorker),
-    )
+    const apiWorker = yield* ApiWorker.pipe(provideAccess)
+    const web = yield* WebSite.pipe(provideAccess)
 
     return {
       accessApplicationId: access.applicationId,
       apiUrl: apiWorker.url,
+      webUrl: web.url,
     }
   }),
 )

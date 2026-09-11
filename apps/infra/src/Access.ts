@@ -1,13 +1,32 @@
 import * as Cloudflare from "alchemy/Cloudflare"
-import * as Output from "alchemy/Output"
 import * as Config from "effect/Config"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
-export const CloudflareAccess = Effect.gen(function* () {
-  const worker = yield* Cloudflare.Worker.Self
+/**
+ * The Access application both Workers enroll in through their `access` prop.
+ * Enrolling a Worker is what makes Cloudflare populate `ctx.access`; a
+ * hostname-scoped application admits the request but leaves it empty.
+ */
+export class OperatorAccess extends Context.Service<
+  OperatorAccess,
+  Cloudflare.Access.Application
+>()("@twitch-integrations/infra/OperatorAccess") {}
 
-  const workersDevDomain = yield* Config.String("CLOUDFLARE_WORKERS_DEV_DOMAIN")
+/** The fixed Access `user_uuid` the simulated Operator carries under `alchemy dev`. */
+const devOperatorUserUuid = "00000000-0000-4000-8000-000000000001"
+
+/** The Access stub a Worker uses under `alchemy dev`, matching the allowed Operator. */
+export const devOperatorAccess = {
+  aud: "dev",
+  identity: {
+    email: Config.String("TWITCH_CHANNEL_OWNER_EMAIL"),
+    user_uuid: devOperatorUserUuid,
+  },
+}
+
+export const CloudflareAccess = Effect.gen(function* () {
   const clientId = yield* Config.Redacted("CLOUDFLARE_ACCESS_GITHUB_CLIENT_ID")
   const clientSecret = yield* Config.Redacted("CLOUDFLARE_ACCESS_GITHUB_CLIENT_SECRET")
 
@@ -26,25 +45,12 @@ export const CloudflareAccess = Effect.gen(function* () {
     require: [{ loginMethod: githubIdp.identityProviderId }],
   })
 
-  const setupDestination = Output.interpolate`${worker.workerName}.${workersDevDomain}/setup`
-
   return yield* Cloudflare.Access.Application("OperatorAccess", {
     type: "self_hosted",
     name: "Twitch Integrations",
-    domain: setupDestination,
     sessionDuration: "1h",
     autoRedirectToIdentity: true,
     allowedIdps: [githubIdp.identityProviderId],
     policies: [allowChannelOwner],
-    destinations: [
-      {
-        type: "public",
-        uri: setupDestination,
-      },
-      {
-        type: "public",
-        uri: Output.interpolate`${worker.workerName}.${workersDevDomain}/oauth`,
-      },
-    ],
   })
 })

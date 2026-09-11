@@ -10,6 +10,7 @@
     "@foldkit/vite-plugin": "catalog:",
     "@twitch-integrations/domain": "workspace:^",
     "happy-dom": "catalog:",
+    "vite": "catalog:",
     "vite-plus": "catalog:"
   }
 }

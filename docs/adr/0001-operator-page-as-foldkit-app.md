@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0002
 ---
 
 # The Operator Page is a Foldkit app served by the API Worker

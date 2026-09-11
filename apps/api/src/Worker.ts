@@ -1,44 +1,33 @@
+import { OperatorAccess, devOperatorAccess } from "@twitch-integrations/infra/Access"
+import { operatorHostname, operatorRoute, zoneName } from "@twitch-integrations/infra/Domain"
 import * as Cloudflare from "alchemy/Cloudflare"
-import * as Command from "alchemy/Command"
-import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
-import { Assets, makeAssets } from "./Assets.ts"
 import { OperatorHttp } from "./OperatorRoutes.ts"
 
-/** The fixed Access `user_uuid` the simulated Operator carries under `alchemy dev`. */
-const devOperatorUserUuid = "00000000-0000-4000-8000-000000000001"
+/** The port the API Worker listens on under `alchemy dev`; the web dev server proxies to it. */
+const devPort = 1337
 
+/**
+ * The API Worker owns the operator hostname as its custom domain, so every
+ * path not routed to another Worker lands here. The `/setup/api*` route is
+ * more specific than the web Worker's `/setup*` route, so the page's JSON
+ * requests reach this Worker.
+ */
 export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
   "Worker",
   Effect.gen(function* () {
-    const webBuild = yield* Command.Build("WebBuild", {
-      cwd: "apps/web",
-      command: "vp build",
-      outdir: "dist/client",
-    })
+    const access = yield* OperatorAccess
     return {
       main: import.meta.url,
-      assets: {
-        directory: webBuild.outdir,
-        hash: webBuild.hash.output,
-        htmlHandling: "none" as const,
-        notFoundHandling: "none" as const,
-        runWorkerFirst: true,
-      },
-      dev: {
-        access: {
-          aud: "dev",
-          identity: {
-            email: Config.String("TWITCH_CHANNEL_OWNER_EMAIL"),
-            user_uuid: devOperatorUserUuid,
-          },
-        },
-      },
+      domain: { name: operatorHostname, zoneName },
+      routes: [operatorRoute("/setup/api*")],
+      access,
+      workersDev: false,
+      dev: { port: devPort, access: devOperatorAccess },
     }
   }),
   Effect.gen(function* () {
-    const assets = yield* makeAssets
-    const handler = yield* OperatorHttp
-    return { fetch: handler.pipe(Effect.provideService(Assets, assets)) }
+    const fetch = yield* OperatorHttp
+    return { fetch }
   }),
 ) {}

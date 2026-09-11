@@ -39,6 +39,6 @@ Read the matching documents before starting each kind of work. Load additional d
 | Defining, changing, or reviewing Effect Schemas              | [Schemas](docs/agents/schemas.md)                                                                                                                              |
 | Creating, fetching, or updating issues                       | [Issue tracker](docs/agents/issue-tracker.md)                                                                                                                  |
 | Triaging issues                                              | [Triage labels](docs/agents/triage-labels.md)                                                                                                                  |
-| Working on the Operator Page in `apps/web` (Foldkit)         | The `foldkit` skill, and `generate-program` or `audit-program` for its architecture and conventions; [ADR 0001](docs/adr/0001-operator-page-as-foldkit-app.md) |
+| Working on the Operator Page in `apps/web` (Foldkit)         | The `foldkit` skill, and `generate-program` or `audit-program` for its architecture and conventions; [ADR 0002](docs/adr/0002-two-workers-on-one-custom-domain.md) |
 
 Keep rules and patterns in focused documents under `docs/agents/`. When adding a topic, add a pointer here with a concrete condition for reading it.
