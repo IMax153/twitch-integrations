@@ -1,7 +1,9 @@
+import type { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Array from "effect/Array"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -130,13 +132,43 @@ const resultView = (maybeResult: Option.Option<BroadcasterResult>, h: HtmlBuilde
     },
   })
 
-const connectionView = ({ provider, status }: ConnectionSummary, h: HtmlBuilder<Message>) =>
+const connectedAccountView = (
+  connectedAccount: Option.Option<ConnectedAccount>,
+  h: HtmlBuilder<Message>,
+) =>
+  Option.match(connectedAccount, {
+    onNone: () => h.empty,
+    onSome: ({ displayName, id }) =>
+      h.p([h.Class("connected-account")], [`${displayName} (${id})`]),
+  })
+
+const scopesView = (scopes: ReadonlyArray<string>, h: HtmlBuilder<Message>) =>
+  Array.isReadonlyArrayNonEmpty(scopes)
+    ? h.ul(
+        [h.Class("scopes")],
+        Array.map(scopes, (scope) => h.li([], [scope])),
+      )
+    : h.empty
+
+const expiresAtView = (expiresAt: Option.Option<DateTime.Utc>, h: HtmlBuilder<Message>) =>
+  Option.match(expiresAt, {
+    onNone: () => h.empty,
+    onSome: (expiresAt) => h.p([h.Class("expires-at")], [DateTime.formatIso(expiresAt)]),
+  })
+
+const connectionView = (
+  { provider, status, connectedAccount, scopes, expiresAt }: ConnectionSummary,
+  h: HtmlBuilder<Message>,
+) =>
   h.keyed("section")(
     provider,
     [h.DataAttribute("provider", provider)],
     [
       h.h2([], [providerLabels[provider]]),
       h.p([h.Class("status")], [status]),
+      connectedAccountView(connectedAccount, h),
+      scopesView(scopes, h),
+      expiresAtView(expiresAt, h),
       // NOTE: a native form submit, so the browser navigates to the Worker's
       // authorize route and follows its redirect to the Provider. A plain
       // button keeps the form free of client-side handling on purpose.

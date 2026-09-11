@@ -1,6 +1,11 @@
 import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
-import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
+import {
+  ConnectionSummary,
+  type ConnectionSummaryEncoded,
+} from "@twitch-integrations/domain/ConnectionSummary"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
+import type { Connection } from "@twitch-integrations/domain/Connection"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -9,9 +14,12 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import type * as Crypto from "effect/Crypto"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AuthorizationFlow } from "./AuthorizationFlow.ts"
-import { ConnectionStore } from "./ConnectionStore.ts"
+import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
+import { type AttemptClaim, ConnectionStore } from "./ConnectionStore.ts"
 import { Provider } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 import * as WebCrypto from "./WebCrypto.ts"
@@ -23,14 +31,27 @@ import * as WebCrypto from "./WebCrypto.ts"
  * access into a call, so a bare Effect member would not survive the RPC.
  */
 export type ConnectionObjectShape = {
-  /** What the Broadcaster Page shows for this Provider. */
+  /**
+   * What the Broadcaster Page shows for this Provider, in its encoded form:
+   * RPC results cross the Durable Object boundary by structured clone, which
+   * keeps plain JSON intact but not `Option` or `DateTime` instances.
+   */
   // oxlint-disable-next-line effecttsgo/lazy-effect
-  readonly describe: () => Effect.Effect<ConnectionSummary>
+  readonly describe: () => Effect.Effect<ConnectionSummaryEncoded>
   /** Records an Authorization Attempt for the Broadcaster and returns the consent URL. */
   readonly startAuthorization: (
     broadcaster: BroadcasterIdentity,
     callbackUri: string,
   ) => Effect.Effect<string>
+  /**
+   * Completes the Attempt the claim names and reports the outcome the
+   * Broadcaster Page should show. Every outcome is a result value rather
+   * than a failure, since the Worker turns each one into a redirect.
+   */
+  readonly completeAuthorization: (
+    claim: AttemptClaim,
+    code: string,
+  ) => Effect.Effect<BroadcasterResult>
 }
 
 /**
@@ -44,37 +65,59 @@ export const makeConnectionObject = (
   Effect.gen(function* () {
     const store = yield* ConnectionStore
     const flow = yield* AuthorizationFlow
+    const summary = (connection: Option.Option<Connection>): ConnectionSummary =>
+      Option.match(connection, {
+        onNone: () => ({
+          provider,
+          status: "Not Configured",
+          connectedAccount: Option.none(),
+          scopes: [],
+          expiresAt: Option.none(),
+        }),
+        onSome: (connection) => ({
+          provider,
+          status: connection.status,
+          connectedAccount: Option.some(connection.connectedAccount),
+          scopes: connection.scopes,
+          expiresAt: Option.some(connection.expiresAt),
+        }),
+      })
     return {
-      describe: () =>
-        Effect.map(
-          store.readConnection,
-          Option.match({
-            onNone: () => ({ provider, status: "Not Configured" as const }),
-            onSome: (connection) => ({ provider, status: connection.status }),
+      describe: () => store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary)),
+      startAuthorization: flow.start,
+      completeAuthorization: (claim, code) =>
+        flow.complete(claim, code).pipe(
+          Effect.as<BroadcasterResult>("connected"),
+          Effect.catchTags({
+            AuthorizationAttemptRejected: () => Effect.succeed("attempt-mismatch" as const),
+            ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
           }),
         ),
-      startAuthorization: flow.start,
     }
   })
 
 /**
  * The object's whole layer graph over a `SqlClient`, the Provider
- * Credentials, and a `Crypto`: the store, the Provider chosen by name, and
- * the flow.
+ * Credentials, an `HttpClient`, and a `Crypto`: the store, the Provider
+ * chosen by name, the lifecycle, and the flow.
  */
 export const connectionObjectLayer = (
   provider: ProviderName,
 ): Layer.Layer<
   ConnectionStore | AuthorizationFlow,
   never,
-  SqlClient.SqlClient | ProviderCredentials | Crypto.Crypto
+  SqlClient.SqlClient | ProviderCredentials | HttpClient.HttpClient | Crypto.Crypto
 > =>
-  Layer.provideMerge(
-    AuthorizationFlow.layer,
-    Layer.merge(ConnectionStore.layer, Provider.layer(provider)),
+  AuthorizationFlow.layer.pipe(
+    Layer.provideMerge(ConnectionLifecycle.layer),
+    Layer.provideMerge(Layer.merge(ConnectionStore.layer, Provider.layer(provider))),
   )
 
 const decodeProviderName = Schema.decodeUnknownEffect(ProviderName)
+
+/** The summary's fields are all constructed here, so encoding cannot fail. */
+const encodeSummary = (summary: ConnectionSummary) =>
+  Effect.orDie(Schema.encodeEffect(ConnectionSummary)(summary))
 
 /**
  * One Durable Object instance per Provider, addressed by Provider name. The
@@ -100,6 +143,7 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
         connectionObjectLayer(provider).pipe(
           Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
           Layer.provide(ProviderCredentials.layer),
+          Layer.provide(FetchHttpClient.layer),
           Layer.provide(WebCrypto.layer),
         ),
         instanceScope,

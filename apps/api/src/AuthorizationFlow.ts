@@ -1,13 +1,21 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
+import type { Connection } from "@twitch-integrations/domain/Connection"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
+import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
-import { ConnectionStore } from "./ConnectionStore.ts"
-import { Provider } from "./Provider.ts"
+import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
+import { type AttemptClaim, ConnectionStore } from "./ConnectionStore.ts"
+import { Provider, type ProviderRequestFailed } from "./Provider.ts"
+
+/** The callback presented a claim no pending, unexpired Attempt matches. */
+export class AuthorizationAttemptRejected extends Data.TaggedError(
+  "AuthorizationAttemptRejected",
+)<{}> {}
 
 export interface AuthorizationFlowService {
   /**
@@ -17,6 +25,16 @@ export interface AuthorizationFlowService {
    * same origin.
    */
   readonly start: (broadcaster: BroadcasterIdentity, callbackUri: string) => Effect.Effect<string>
+  /**
+   * Finishes the Attempt the claim names: consumes it, exchanges the code,
+   * looks up the Connected Account, and installs the result as the
+   * Connection. The Attempt is consumed even when the exchange then fails,
+   * so a code is only ever presented to the Provider once.
+   */
+  readonly complete: (
+    claim: AttemptClaim,
+    code: string,
+  ) => Effect.Effect<Connection, AuthorizationAttemptRejected | ProviderRequestFailed>
 }
 
 /** How long the Broadcaster has to finish consent before the Attempt is stale. */
@@ -25,6 +43,7 @@ const attemptLifetime = { minutes: 10 }
 const make = Effect.gen(function* () {
   const store = yield* ConnectionStore
   const provider = yield* Provider
+  const lifecycle = yield* ConnectionLifecycle
   const crypto = yield* Crypto.Crypto
 
   // NOTE: the state value guards the callback against forgery, so it comes
@@ -59,10 +78,20 @@ const make = Effect.gen(function* () {
         yield* store.createAttempt(attempt)
         return consentUrl(attempt)
       }),
+    complete: (claim, code) =>
+      Effect.gen(function* () {
+        const consumed = yield* store.consumeAttempt(claim)
+        if (!consumed) {
+          return yield* new AuthorizationAttemptRejected()
+        }
+        const tokens = yield* provider.exchangeCode(code, claim.callbackUri)
+        const connectedAccount = yield* provider.fetchConnectedAccount(tokens.accessToken)
+        return yield* lifecycle.accept(tokens, connectedAccount)
+      }),
   })
 })
 
-/** Starts Provider authorizations for one Provider's Connection. */
+/** Starts and completes Provider authorizations for one Provider's Connection. */
 export class AuthorizationFlow extends Context.Service<
   AuthorizationFlow,
   AuthorizationFlowService
@@ -70,6 +99,6 @@ export class AuthorizationFlow extends Context.Service<
   static readonly layer: Layer.Layer<
     AuthorizationFlow,
     never,
-    ConnectionStore | Provider | Crypto.Crypto
+    ConnectionStore | Provider | ConnectionLifecycle | Crypto.Crypto
   > = Layer.effect(AuthorizationFlow)(make)
 }

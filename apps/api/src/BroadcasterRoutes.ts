@@ -1,3 +1,4 @@
+import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
@@ -24,7 +25,11 @@ const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 const isBroadcasterPath = (path: string): boolean =>
   broadcasterPathPrefixes.some((prefix) => path.startsWith(prefix))
 
-const connectionSummaries = HttpServerResponse.schemaJson(Schema.Array(ConnectionSummary))
+// The objects hand over summaries already encoded, so the response schema is
+// the encoded side: the values pass through as they are.
+const connectionSummaries = HttpServerResponse.schemaJson(
+  Schema.Array(Schema.toEncoded(ConnectionSummary)),
+)
 
 const connectionsResponse = Effect.gen(function* () {
   const connections = yield* Connections
@@ -78,12 +83,52 @@ const authorizeResponse = Effect.gen(function* () {
   return HttpServerResponse.redirect(consentUrl, { status: 303 })
 })
 
+/** The Broadcaster Page, where every callback outcome sends the browser. */
+const broadcasterPagePath = "/setup"
+
+/** A redirect to the Broadcaster Page carrying the outcome as its result parameter. */
+const broadcasterPageRedirect = (origin: string, result: BroadcasterResult) => {
+  const page = new URL(broadcasterPagePath, origin)
+  page.searchParams.set("result", result)
+  return HttpServerResponse.redirect(page.toString(), { status: 303 })
+}
+
+const callbackResponse = Effect.gen(function* () {
+  const { provider } = yield* HttpRouter.params
+  if (!isProviderName(provider)) {
+    return unknownProvider
+  }
+  const broadcaster = yield* readBroadcaster
+  if (Option.isNone(broadcaster)) {
+    return accessRequired
+  }
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const url = new URL(request.originalUrl)
+  const code = url.searchParams.get("code")
+  if (code === null) {
+    return broadcasterPageRedirect(url.origin, "missing-code")
+  }
+  const connections = yield* Connections
+  const result = yield* connections.completeAuthorization(
+    provider,
+    {
+      state: url.searchParams.get("state") ?? "",
+      provider,
+      callbackUri: new URL(callbackPath(provider), url.origin).toString(),
+      broadcaster: broadcaster.value,
+    },
+    code,
+  )
+  return broadcasterPageRedirect(url.origin, result)
+})
+
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
 // `Connections` the surrounding Worker or test harness supplies.
 const routes = Layer.mergeAll(
   HttpRouter.add("GET", "/setup/api/connections", connectionsResponse),
   HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
+  HttpRouter.add("GET", "/oauth/:provider/callback", callbackResponse),
 ).pipe(HttpRouter.provideRequest(Layer.effect(Connections)(Connections)))
 
 /**

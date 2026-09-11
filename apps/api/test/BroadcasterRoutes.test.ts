@@ -1,18 +1,28 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
-import type { AttemptClaim } from "../src/ConnectionStore.ts"
+import * as Redacted from "effect/Redacted"
 import {
   makeBroadcasterWorld,
   broadcasterIdentity,
   type SendOptions,
 } from "./BroadcasterHarness.ts"
-import { authorizedConnection, broadcaster } from "./fixtures.ts"
+import { authorizedConnection, broadcaster, grantedScenario } from "./fixtures.ts"
 
 const asBroadcaster = { identity: broadcasterIdentity }
+
+const notConfigured = (provider: ProviderName): ConnectionSummary => ({
+  provider,
+  status: "Not Configured",
+  connectedAccount: Option.none(),
+  scopes: [],
+  expiresAt: Option.none(),
+})
 
 const decodeConnections = Schema.decodeUnknownEffect(
   Schema.Array(ConnectionSummary).annotate({ identifier: "Connections" }),
@@ -24,26 +34,22 @@ const world = Effect.map(makeBroadcasterWorld, (world) => {
   const get = (path: string, options?: SendOptions) => send("GET", path, options)
   const authorize = (provider: string) =>
     send("POST", `/oauth/${provider}/authorize`, asBroadcaster)
-  /** Starts an authorization and returns the state the consent URL carries plus the claim a callback would present. */
+  /** Starts an authorization and returns the state value the consent URL carries. */
   const startAttempt = (provider: ProviderName) =>
     Effect.map(authorize(provider), (response) => {
       const consent = new URL(response.headers.get("location") ?? "")
-      const state = consent.searchParams.get("state") ?? ""
-      const claim: AttemptClaim = {
-        state,
-        provider,
-        callbackUri: consent.searchParams.get("redirect_uri") ?? "",
-        broadcaster,
-      }
-      return { state, claim }
+      return { state: consent.searchParams.get("state") ?? "" }
     })
+  /** Plays the Provider redirecting the Broadcaster back after consent. */
+  const callback = (provider: string, query: Record<string, string>, options?: SendOptions) =>
+    get(`/oauth/${provider}/callback?${new URLSearchParams(query)}`, options ?? asBroadcaster)
   const getConnections = Effect.gen(function* () {
     const response = yield* get("/setup/api/connections", asBroadcaster)
     assert.strictEqual(response.status, 200)
     assert.match(response.headers.get("content-type") ?? "", /^application\/json/)
     return yield* decodeConnections(yield* Effect.promise(() => response.json()))
   })
-  return { ...world, send, get, authorize, startAttempt, getConnections }
+  return { ...world, send, get, authorize, startAttempt, callback, getConnections }
 })
 
 describe("broadcaster routes", () => {
@@ -79,8 +85,8 @@ describe("broadcaster routes", () => {
     Effect.gen(function* () {
       const { getConnections } = yield* world
       assert.deepStrictEqual(yield* getConnections, [
-        { provider: "spotify", status: "Not Configured" },
-        { provider: "twitch", status: "Not Configured" },
+        notConfigured("spotify"),
+        notConfigured("twitch"),
       ])
     }),
   )
@@ -90,8 +96,14 @@ describe("broadcaster routes", () => {
       const { stores, getConnections } = yield* world
       yield* stores.spotify.writeConnection(authorizedConnection)
       assert.deepStrictEqual(yield* getConnections, [
-        { provider: "spotify", status: "Authorized" },
-        { provider: "twitch", status: "Not Configured" },
+        {
+          provider: "spotify",
+          status: "Authorized",
+          connectedAccount: Option.some({ id: "spotify-user-1", displayName: "Max" }),
+          scopes: ["user-read-currently-playing", "user-read-playback-state"],
+          expiresAt: Option.some(DateTime.makeUnsafe("2026-09-11T13:00:00Z")),
+        },
+        notConfigured("twitch"),
       ])
     }),
   )
@@ -164,33 +176,189 @@ describe("broadcaster routes", () => {
         assert.strictEqual(response.status, 404)
       }),
     )
+  })
 
-    it.effect("records a one-use Attempt the callback can consume once", () =>
+  describe("completing an authorization", () => {
+    it.effect.each(["spotify", "twitch"] as const)(
+      "redirects a %s callback to the Broadcaster Page with a success result",
+      (provider) =>
+        Effect.gen(function* () {
+          const { providers, startAttempt, callback } = yield* world
+          yield* providers.set(provider, grantedScenario)
+          const { state } = yield* startAttempt(provider)
+          const response = yield* callback(provider, { code: "code-1", state })
+          assert.strictEqual(response.status, 303)
+          assert.strictEqual(
+            response.headers.get("location"),
+            "https://worker.example/setup?result=connected",
+          )
+        }),
+    )
+
+    it.effect("exchanges the code with Spotify using HTTP Basic client authentication", () =>
       Effect.gen(function* () {
-        const { stores, startAttempt } = yield* world
-        const { claim } = yield* startAttempt("twitch")
-        assert.isTrue(yield* stores.twitch.consumeAttempt(claim))
-        assert.isFalse(yield* stores.twitch.consumeAttempt(claim))
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
+        yield* callback("spotify", { code: "code-1", state })
+        const [exchange, identity] = yield* providers.received
+        assert.strictEqual(exchange?.url, "https://accounts.spotify.com/api/token")
+        assert.strictEqual(
+          exchange.headers["authorization"],
+          `Basic ${btoa("spotify-client-id:spotify-client-secret")}`,
+        )
+        assert.deepStrictEqual(exchange.form, {
+          grant_type: "authorization_code",
+          code: "code-1",
+          redirect_uri: "https://worker.example/oauth/spotify/callback",
+        })
+        assert.strictEqual(identity?.url, "https://api.spotify.com/v1/me")
+        assert.strictEqual(identity.headers["authorization"], "Bearer granted-access-token")
+      }),
+    )
+
+    it.effect("exchanges the code with Twitch using the Credentials in the form body", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("twitch", grantedScenario)
+        const { state } = yield* startAttempt("twitch")
+        yield* callback("twitch", { code: "code-2", state })
+        const [exchange, identity] = yield* providers.received
+        assert.strictEqual(exchange?.url, "https://id.twitch.tv/oauth2/token")
+        assert.isUndefined(exchange.headers["authorization"])
+        assert.deepStrictEqual(exchange.form, {
+          grant_type: "authorization_code",
+          code: "code-2",
+          redirect_uri: "https://worker.example/oauth/twitch/callback",
+          client_id: "twitch-client-id",
+          client_secret: "twitch-client-secret",
+        })
+        assert.strictEqual(identity?.url, "https://id.twitch.tv/oauth2/validate")
+        assert.strictEqual(identity.headers["authorization"], "OAuth granted-access-token")
+      }),
+    )
+
+    it.effect("records a one-use Attempt: a replayed callback is refused", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("twitch", grantedScenario)
+        const { state } = yield* startAttempt("twitch")
+        yield* callback("twitch", { code: "code-1", state })
+        const replay = yield* callback("twitch", { code: "code-1", state })
+        assert.strictEqual(
+          replay.headers.get("location"),
+          "https://worker.example/setup?result=attempt-mismatch",
+        )
+        assert.lengthOf(yield* providers.received, 2)
       }),
     )
 
     it.effect("binds the Attempt to the Broadcaster who started it", () =>
       Effect.gen(function* () {
-        const { stores, startAttempt } = yield* world
-        const { claim } = yield* startAttempt("spotify")
-        const somebodyElse = { userUuid: "not-the-broadcaster", email: "else@example.com" }
-        assert.isFalse(
-          yield* stores.spotify.consumeAttempt({ ...claim, broadcaster: somebodyElse }),
+        const { providers, startAttempt, callback, getConnections } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
+        const response = yield* callback(
+          "spotify",
+          { code: "code-1", state },
+          { identity: { user_uuid: "not-the-broadcaster", email: "else@example.com" } },
         )
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=attempt-mismatch",
+        )
+        assert.lengthOf(yield* providers.received, 0)
+        assert.strictEqual((yield* getConnections)[0]?.status, "Not Configured")
       }),
     )
 
     it.effect("lets the Attempt expire after ten minutes", () =>
       Effect.gen(function* () {
-        const { stores, startAttempt } = yield* world
-        const { claim } = yield* startAttempt("spotify")
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
         yield* TestClock.adjust("10 minutes")
-        assert.isFalse(yield* stores.spotify.consumeAttempt(claim))
+        const response = yield* callback("spotify", { code: "code-1", state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=attempt-mismatch",
+        )
+        assert.lengthOf(yield* providers.received, 0)
+      }),
+    )
+
+    it.effect("replaces the previous Connection entirely on a second authorization", () =>
+      Effect.gen(function* () {
+        const { providers, stores, startAttempt, callback, getConnections } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const first = yield* startAttempt("spotify")
+        yield* callback("spotify", { code: "code-1", state: first.state })
+        yield* providers.set("spotify", {
+          grant: {
+            accessToken: "second-access-token",
+            refreshToken: Option.some("second-refresh-token"),
+            expiresIn: 60,
+            scopes: Option.some(["scope-c"]),
+          },
+          account: { id: "account-2", displayName: "Other" },
+        })
+        const second = yield* startAttempt("spotify")
+        yield* callback("spotify", { code: "code-2", state: second.state })
+        const [spotify] = yield* getConnections
+        assert.deepStrictEqual(
+          spotify?.connectedAccount,
+          Option.some({ id: "account-2", displayName: "Other" }),
+        )
+        assert.deepStrictEqual(spotify.scopes, ["scope-c"])
+        // Tokens never reach a response, so the store is the only place to see them replaced.
+        const stored = yield* stores.spotify.readConnection
+        assert.deepStrictEqual(
+          Option.map(stored, (connection) => [
+            Redacted.value(connection.accessToken),
+            Option.map(connection.refreshToken, Redacted.value),
+          ]),
+          Option.some(["second-access-token", Option.some("second-refresh-token")]),
+        )
+      }),
+    )
+
+    it.effect("never puts a token in a response", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, get } = yield* world
+        yield* providers.set("twitch", grantedScenario)
+        const { state } = yield* startAttempt("twitch")
+        const redirect = yield* callback("twitch", { code: "code-1", state })
+        const page = yield* get("/setup/api/connections", asBroadcaster)
+        const headerLines = (response: Response) =>
+          [...response.headers].map(([name, value]) => `${name}: ${value}`)
+        const seen = [
+          ...headerLines(redirect),
+          yield* Effect.promise(() => redirect.text()),
+          ...headerLines(page),
+          yield* Effect.promise(() => page.text()),
+        ].join("\n")
+        assert.notInclude(seen, "granted-access-token")
+        assert.notInclude(seen, "granted-refresh-token")
+      }),
+    )
+
+    it.effect("shows the Connected Account, granted scopes, and expiry once authorized", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, getConnections } = yield* world
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(DateTime.makeUnsafe("2026-09-11T12:00:00Z")),
+        )
+        yield* providers.set("twitch", grantedScenario)
+        const { state } = yield* startAttempt("twitch")
+        yield* callback("twitch", { code: "code-1", state })
+        const [, twitch] = yield* getConnections
+        assert.deepStrictEqual(twitch, {
+          provider: "twitch",
+          status: "Authorized",
+          connectedAccount: Option.some({ id: "account-1", displayName: "Max" }),
+          scopes: ["scope-a", "scope-b"],
+          expiresAt: Option.some(DateTime.makeUnsafe("2026-09-11T13:00:00Z")),
+        })
       }),
     )
   })

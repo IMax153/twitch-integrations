@@ -4,6 +4,7 @@ import type { BroadcasterIdentity } from "@twitch-integrations/domain/Broadcaste
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
+import type { ProviderScenario } from "./FakeProviders.ts"
 
 export const broadcaster: BroadcasterIdentity = {
   userUuid: "8d5c1a1e-4b7e-4d2b-9c1a-2f3e4d5c6b7a",
@@ -32,4 +33,15 @@ export const pendingAttempt: AuthorizationAttempt = {
   createdAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
   expiresAt: DateTime.makeUnsafe("2026-09-11T12:10:00Z"),
   consumed: false,
+}
+
+/** A Provider granting a full set of tokens to the account "Max". */
+export const grantedScenario: ProviderScenario = {
+  grant: {
+    accessToken: "granted-access-token",
+    refreshToken: Option.some("granted-refresh-token"),
+    expiresIn: 3600,
+    scopes: Option.some(["scope-a", "scope-b"]),
+  },
+  account: { id: "account-1", displayName: "Max" },
 }

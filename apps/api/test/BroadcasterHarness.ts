@@ -15,12 +15,14 @@ import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import type * as Scope from "effect/Scope"
+import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { connectionObjectLayer, makeConnectionObject } from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
 import { ProviderCredentials } from "../src/ProviderCredentials.ts"
 import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
+import { FakeProviders, type FakeProvidersService } from "./FakeProviders.ts"
 import { broadcaster } from "./fixtures.ts"
 
 type ExecutionContext = Parameters<typeof fromExecutionContext>[0]
@@ -63,6 +65,8 @@ export interface SendOptions {
 export interface BroadcasterWorld {
   readonly send: (request: Request, options?: SendOptions) => Effect.Effect<Response>
   readonly stores: Record<ProviderName, ConnectionStoreService>
+  /** The fake Providers every object talks to, shared so a test can script them. */
+  readonly providers: FakeProvidersService
 }
 
 /** Fake Credentials with recognisable values, so a test can spot them in a consent URL. */
@@ -81,12 +85,13 @@ const fakeCredentials = Layer.succeed(ProviderCredentials, {
  * One object's services over a fresh in-memory database, playing one Durable
  * Object's storage, and the fake Credentials.
  */
-const inMemoryObject = (provider: ProviderName) =>
+const inMemoryObject = (provider: ProviderName, providers: Layer.Layer<HttpClient.HttpClient>) =>
   Layer.build(
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
       Layer.provide(fakeCredentials),
       Layer.provide(NodeCrypto.layer),
+      Layer.provide(providers),
     ),
   )
 
@@ -98,7 +103,11 @@ const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A,
 
 export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.Scope> = Effect.gen(
   function* () {
-    const services = yield* perProvider(inMemoryObject)
+    const fakes = yield* Layer.build(FakeProviders.layer)
+    const providers = Context.get(fakes, FakeProviders)
+    const services = yield* perProvider((provider) =>
+      inMemoryObject(provider, Layer.succeedContext(fakes)),
+    )
     const stores = Record.map(services, Context.get(ConnectionStore))
     const objects = yield* perProvider((provider) =>
       makeConnectionObject(provider).pipe(Effect.provide(services[provider])),
@@ -134,6 +143,6 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       )
     }
 
-    return { send, stores }
+    return { send, stores, providers }
   },
 )

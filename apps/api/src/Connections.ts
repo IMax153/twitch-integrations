@@ -1,19 +1,28 @@
-import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
+import type { ConnectionSummaryEncoded } from "@twitch-integrations/domain/ConnectionSummary"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { ConnectionObject, type ConnectionObjectShape } from "./ConnectionObject.ts"
+import type { AttemptClaim } from "./ConnectionStore.ts"
 
 export interface ConnectionsService {
-  readonly describe: (provider: ProviderName) => Effect.Effect<ConnectionSummary>
+  /** The Provider's summary as the object encoded it, ready to serve as JSON. */
+  readonly describe: (provider: ProviderName) => Effect.Effect<ConnectionSummaryEncoded>
   /** Starts an Authorization Attempt on the Provider's object and returns the consent URL. */
   readonly startAuthorization: (
     provider: ProviderName,
     broadcaster: BroadcasterIdentity,
     callbackUri: string,
   ) => Effect.Effect<string>
+  /** Completes an Authorization Attempt on the Provider's object and returns the outcome. */
+  readonly completeAuthorization: (
+    provider: ProviderName,
+    claim: AttemptClaim,
+    code: string,
+  ) => Effect.Effect<BroadcasterResult>
 }
 
 /**
@@ -26,6 +35,8 @@ const fromObjects = (
   describe: (provider) => objectFor(provider).describe(),
   startAuthorization: (provider, broadcaster, callbackUri) =>
     objectFor(provider).startAuthorization(broadcaster, callbackUri),
+  completeAuthorization: (provider, claim, code) =>
+    objectFor(provider).completeAuthorization(claim, code),
 })
 
 const make = Effect.map(ConnectionObject, (objects) =>

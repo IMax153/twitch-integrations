@@ -14,7 +14,11 @@ import {
 } from "foldkit/scene"
 import { describe, test } from "vite-plus/test"
 import { FetchConnections, Message, update, view } from "../src/main.ts"
-import { loadedModel, notConfiguredConnections as connections } from "./fixtures.ts"
+import {
+  authorizedTwitch,
+  loadedModel,
+  notConfiguredConnections as connections,
+} from "./fixtures.ts"
 
 describe("view", () => {
   test("renders one Not Configured section per Provider with a Connect form", () => {
@@ -38,15 +42,31 @@ describe("view", () => {
     )
   })
 
-  test("offers Reconnect for a Connection that is not Not Configured", () => {
+  test("shows an Authorized Connection's account, scopes, and expiry with a Reconnect button", () => {
     scene(
       { update, view },
-      given({
-        ...loadedModel,
-        connections: AsyncData.succeed([{ provider: "twitch", status: "Authorized" }] as const),
-      }),
-      expect(text("Authorized")).toExist(),
+      given({ ...loadedModel, connections: AsyncData.succeed([authorizedTwitch]) }),
+      expect(selector('section[data-provider="twitch"] p.status')).toHaveText("Authorized"),
+      expect(selector('section[data-provider="twitch"] .connected-account')).toHaveText(
+        "twitchdev (141981764)",
+      ),
+      expectAll(all.selector('section[data-provider="twitch"] ul.scopes li')).toHaveCount(2),
+      expect(text("user:read:chat")).toExist(),
+      expect(text("user:write:chat")).toExist(),
+      expect(selector('section[data-provider="twitch"] .expires-at')).toHaveText(
+        "2026-09-11T13:00:00.000Z",
+      ),
       expect(selector('section[data-provider="twitch"] button')).toHaveText("Reconnect"),
+    )
+  })
+
+  test("shows no account, scopes, or expiry while Not Configured", () => {
+    scene(
+      { update, view },
+      given(loadedModel),
+      expect(selector('section[data-provider="twitch"] .connected-account')).not.toExist(),
+      expect(selector('section[data-provider="twitch"] ul.scopes')).not.toExist(),
+      expect(selector('section[data-provider="twitch"] .expires-at')).not.toExist(),
     )
   })
 
