@@ -7,6 +7,12 @@
       "skillPath": "skills/engineering/ask-matt/SKILL.md",
       "computedHash": "0cd14026efa0330083cbc7adf590976c162b60e02f696a8dcce96f0b4dab8a72"
     },
+    "audit-program": {
+      "source": "foldkit/foldkit",
+      "sourceType": "github",
+      "skillPath": "skills/audit-program/SKILL.md",
+      "computedHash": "7e197a81b3d1bf8a1047800009d8e1d019823c8dd831ebf4fcfd40bb7fc224bd"
+    },
     "code-review": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -30,6 +36,18 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/domain-modeling/SKILL.md",
       "computedHash": "a11713c0ff7870efa3c331b2e273f09116158485246edc89ae5088eefd1b0b48"
+    },
+    "foldkit": {
+      "source": "foldkit/foldkit",
+      "sourceType": "github",
+      "skillPath": "skills/foldkit/SKILL.md",
+      "computedHash": "be75f13704cbfd5769a1aa421979507cd90f81dd1ddab3cc8cb7256124a7284a"
+    },
+    "generate-program": {
+      "source": "foldkit/foldkit",
+      "sourceType": "github",
+      "skillPath": "skills/generate-program/SKILL.md",
+      "computedHash": "04881fee174b81cb00af7981f7b4403141b444e6d3c8003115e5933099d8f67d"
     },
     "grill-me": {
       "source": "mattpocock/skills",

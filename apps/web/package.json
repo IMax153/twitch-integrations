@@ -1,0 +1,15 @@
+{
+  "name": "@twitch-integrations/web",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "effect": "catalog:",
+    "foldkit": "catalog:"
+  },
+  "devDependencies": {
+    "@foldkit/vite-plugin": "catalog:",
+    "@twitch-integrations/domain": "workspace:^",
+    "happy-dom": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

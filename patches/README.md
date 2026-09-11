@@ -14,3 +14,7 @@ The Alchemy patch covers beta.77's current source, generated JavaScript, and bun
 Keep `@effect/platform-node` aligned with Effect at rc.113. The rc.112 platform package calls the removed `FileSystem.Size` constructor and fails when the CLI reads file metadata.
 
 The SQL adapters `@effect/sql-sqlite-do` and `@effect/sql-sqlite-node` are pinned to the workspace Effect release, `4.0.0-rc.113`. Keep both aligned with Effect. Upgrading Effect and Alchemy to their latest releases is outside the scope of the Spotify and Twitch OAuth feature.
+
+## Foldkit
+
+`foldkit@0.158.2` pins `effect@4.0.0-rc.112` and calls `SchemaTransformation.transformOrFail`, which rc.113 renamed to `transformEffect`, so it fails to load on the workspace's rc.113. `patches/foldkit@0.158.2.patch` ports the runtime changes from foldkit/foldkit pull request 1366 (the rename in `url` and `calendar`, and the rc.113 union AST shape plus constructor adapter in `schema`). Remove the patch and the `minimumReleaseAgeExclude` entry when a Foldkit release targets rc.113. `@foldkit/vite-plugin` shares the rc.112 peer range but needs no patch.

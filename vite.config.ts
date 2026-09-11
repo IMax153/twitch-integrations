@@ -1,5 +1,10 @@
-import { defineConfig } from "vite-plus"
+import foldkitRecommended from "@foldkit/oxlint-plugin/recommended.json" with { type: "json" }
 import { recommended } from "@effect/tsgo/oxlint-presets"
+import { type ViteUserConfig, defineConfig } from "vite-plus"
+
+type LintPreset = NonNullable<NonNullable<ViteUserConfig["lint"]>["extends"]>[number]
+
+const foldkitPreset = foldkitRecommended as LintPreset
 
 export default defineConfig({
   staged: {
@@ -7,10 +12,11 @@ export default defineConfig({
   },
   fmt: {
     semi: false,
+    ignorePatterns: [".agents/**"],
   },
   lint: {
     ignorePatterns: [".direnv"],
-    extends: [recommended],
+    extends: [recommended, foldkitPreset],
     plugins: ["typescript"],
     jsPlugins: [
       {
@@ -43,12 +49,21 @@ export default defineConfig({
     cache: true,
   },
   test: {
-    include: [
-      "apps/*/test/**/*.test.ts",
-      "packages/*/test/**/*.test.ts",
-      "tools/*/test/**/*.test.ts",
-    ],
-    exclude: [".direnv", "**/node_modules/**"],
     passWithNoTests: true,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          include: [
+            "apps/*/test/**/*.test.ts",
+            "packages/*/test/**/*.test.ts",
+            "tools/*/test/**/*.test.ts",
+          ],
+          exclude: [".direnv", "**/node_modules/**", "apps/web/**"],
+        },
+      },
+      "apps/web",
+    ],
   },
 })

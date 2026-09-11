@@ -1,13 +1,12 @@
+import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { renderOperatorPage } from "./OperatorPage.ts"
-import { OperatorResult } from "./OperatorResult.ts"
+import { Assets } from "./Assets.ts"
 
 /**
  * Path prefixes the Cloudflare Access application covers. Every request under
@@ -17,30 +16,45 @@ import { OperatorResult } from "./OperatorResult.ts"
  */
 const operatorPathPrefixes = ["/setup", "/oauth"]
 
-const isOperatorPath = (url: string): boolean => {
-  const path = url.split("?", 1)[0] ?? ""
-  return operatorPathPrefixes.some((prefix) => path.startsWith(prefix))
-}
+/** Where the Operator Page app lives, and the JSON routes it calls. */
+const pagePrefix = "/setup"
+const apiPrefix = "/setup/api"
 
-const decodeResult = Schema.decodeUnknownOption(OperatorResult)
+const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 
-const operatorPage = Effect.gen(function* () {
-  const searchParams = yield* HttpServerRequest.ParsedSearchParams
-  const result = Option.getOrUndefined(decodeResult(searchParams.result))
-  const sections = ProviderName.literals.map((provider) => ({
-    provider,
-    status: "Not Configured" as const,
-  }))
-  return HttpServerResponse.html(renderOperatorPage({ sections, result }))
-})
+const isOperatorPath = (path: string): boolean =>
+  operatorPathPrefixes.some((prefix) => path.startsWith(prefix))
 
-const routes = HttpRouter.add("GET", "/setup", operatorPage)
+const isUnder = (path: string, prefix: string): boolean =>
+  path === prefix || path.startsWith(`${prefix}/`)
+
+const isPagePath = (path: string): boolean => isUnder(path, pagePrefix) && !isUnder(path, apiPrefix)
+
+const connectionSummaries = HttpServerResponse.schemaJson(Schema.Array(ConnectionSummary))
+
+const describeConnections = connectionSummaries(
+  ProviderName.literals.map((provider) => ({ provider, status: "Not Configured" as const })),
+)
+
+const routes = HttpRouter.add("GET", "/setup/api/connections", describeConnections)
 
 const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
 
 /**
+ * Serves the Operator Page from the assets: the matching file when there is
+ * one, otherwise the app shell so deep links boot the app.
+ */
+const servePage = Effect.fn("servePage")(function* (path: string) {
+  const assets = yield* Assets
+  const assetPath = path.slice(pagePrefix.length) || "/"
+  const file = yield* assets.fetch(assetPath === "/" ? "/index.html" : assetPath)
+  const response = file.status === 404 ? yield* assets.fetch("/index.html") : file
+  return HttpServerResponse.fromWeb(response)
+})
+
+/**
  * The Worker's HTTP handler: the Access gate over the operator path prefixes,
- * then the router.
+ * then the Operator Page assets, then the router.
  *
  * The router layer is built once and its scope closed immediately. That is
  * fine while the router holds no scoped resources; a scoped middleware or
@@ -50,11 +64,15 @@ export const OperatorHttp = HttpRouter.toHttpEffect(routes).pipe(
   Effect.map((router) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
-      if (isOperatorPath(request.url)) {
+      const path = pathOf(request.url)
+      if (isOperatorPath(path)) {
         const access = yield* Cloudflare.Access.Context
         if (access === undefined) {
           return accessRequired
         }
+      }
+      if (isPagePath(path) && (request.method === "GET" || request.method === "HEAD")) {
+        return yield* servePage(path)
       }
       return yield* router
     }),

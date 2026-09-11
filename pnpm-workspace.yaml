@@ -12,9 +12,12 @@ catalog:
   "@effect/tsgo": ^0.38.0
   "@effect/vitest": 4.0.0-rc.113
   "@foldkit/oxlint-plugin": ^0.12.0
+  "@foldkit/vite-plugin": 0.20.2
   "@types/node": ^24.13.3
   alchemy: 2.0.0-beta.77
   effect: 4.0.0-rc.113
+  foldkit: 0.158.2
+  happy-dom: ^20.11.13
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
   vite-plus: 0.3.0
@@ -39,6 +42,8 @@ minimumReleaseAgeExclude:
   - "@effect/sql-sqlite-do@4.0.0-rc.113"
   - "@effect/sql-sqlite-node@4.0.0-rc.113"
   - "@effect/vitest@4.0.0-rc.113"
+  - foldkit@0.158.2
+  - "@foldkit/vite-plugin@0.20.2"
   - effect@4.0.0-rc.113
   - "@aws-sdk/core@3.978.0"
   - "@aws-sdk/credential-provider-env@3.972.71"
@@ -74,3 +79,4 @@ patchedDependencies:
   "@distilled.cloud/planetscale@1.0.0-rc.9": patches/@distilled.cloud__planetscale@1.0.0-rc.9.patch
   "alchemy@2.0.0-beta.77": patches/alchemy@2.0.0-beta.77.patch
   "@distilled.cloud/railway@1.0.0-rc.9": patches/@distilled.cloud__railway@1.0.0-rc.9.patch
+  foldkit@0.158.2: patches/foldkit@0.158.2.patch

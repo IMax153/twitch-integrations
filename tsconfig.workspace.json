@@ -1,5 +1,11 @@
 {
   "extends": "./tsconfig.base.json",
   "include": ["alchemy.run.ts", "vite.config.ts"],
-  "references": [{ "path": "apps/api" }, { "path": "apps/infra" }, { "path": "packages/domain" }]
+  "compilerOptions": { "resolveJsonModule": true },
+  "references": [
+    { "path": "apps/api" },
+    { "path": "apps/infra" },
+    { "path": "apps/web" },
+    { "path": "packages/domain" }
+  ]
 }
