@@ -6,11 +6,16 @@ import {
 } from "@twitch-integrations/domain/ConnectionSummary"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import type { Connection } from "@twitch-integrations/domain/Connection"
+import type {
+  ConnectionNotConfigured,
+  ReauthorizationRequired,
+} from "@twitch-integrations/domain/ConnectionErrors"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import type * as Crypto from "effect/Crypto"
@@ -25,7 +30,7 @@ import {
   type AuthorizationAttemptRejected,
   ConnectionStore,
 } from "./ConnectionStore.ts"
-import { Provider } from "./Provider.ts"
+import { Provider, type ProviderRequestFailed } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 import * as WebCrypto from "./WebCrypto.ts"
 
@@ -64,6 +69,17 @@ export type ConnectionObjectShape = {
    * why the claim missed.
    */
   readonly abandonAuthorization: (claim: AttemptClaim) => Effect.Effect<BroadcasterResult>
+  /**
+   * A valid access token for the Connection, refreshed first when it is
+   * about to expire. The plain string, since `Redacted` does not survive the
+   * RPC boundary; the Worker wraps it again on arrival. Failures cross the
+   * boundary as plain objects carrying their tag and fields.
+   */
+  // oxlint-disable-next-line effecttsgo/lazy-effect
+  readonly getAccessToken: () => Effect.Effect<
+    string,
+    ConnectionNotConfigured | ReauthorizationRequired | ProviderRequestFailed
+  >
 }
 
 /** The result the Broadcaster Page shows for each way a claim can miss its Attempt. */
@@ -80,10 +96,15 @@ const rejectionResult: Record<AttemptRejectionReason, BroadcasterResult> = {
  */
 export const makeConnectionObject = (
   provider: ProviderName,
-): Effect.Effect<ConnectionObjectShape, never, ConnectionStore | AuthorizationFlow> =>
+): Effect.Effect<
+  ConnectionObjectShape,
+  never,
+  ConnectionStore | AuthorizationFlow | ConnectionLifecycle
+> =>
   Effect.gen(function* () {
     const store = yield* ConnectionStore
     const flow = yield* AuthorizationFlow
+    const lifecycle = yield* ConnectionLifecycle
     const summary = (connection: Option.Option<Connection>): ConnectionSummary =>
       Option.match(connection, {
         onNone: () => ({
@@ -126,6 +147,7 @@ export const makeConnectionObject = (
               : rejected(rejection),
           ),
         ),
+      getAccessToken: () => Effect.map(lifecycle.requestAccessToken, Redacted.value),
     }
   })
 
@@ -137,7 +159,7 @@ export const makeConnectionObject = (
 export const connectionObjectLayer = (
   provider: ProviderName,
 ): Layer.Layer<
-  ConnectionStore | AuthorizationFlow,
+  ConnectionStore | AuthorizationFlow | ConnectionLifecycle,
   never,
   SqlClient.SqlClient | ProviderCredentials | HttpClient.HttpClient | Crypto.Crypto
 > =>

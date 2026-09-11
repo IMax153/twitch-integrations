@@ -1,14 +1,17 @@
 import type { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
+import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Redacted from "effect/Redacted"
 import * as Ref from "effect/Ref"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { ProviderCredentials } from "../src/ProviderCredentials.ts"
 
 /** The tokens a fake Provider hands out on a successful grant. */
 export interface TokenGrant {
@@ -32,6 +35,8 @@ export type TokenEndpoint =
 export interface ProviderScenario {
   readonly token: TokenEndpoint
   readonly account: ConnectedAccount
+  /** How long every answer takes on the Clock, so a test can hold a request in flight. */
+  readonly latency?: Duration.Input
 }
 
 /** One request as the fake Provider saw it, with any form body decoded. */
@@ -50,11 +55,22 @@ export interface FakeProvidersService {
   readonly received: Effect.Effect<ReadonlyArray<ReceivedRequest>>
 }
 
-/** The Credentials the fake Providers expect, matching the harness's fake config. */
+/** The Credentials the fake Providers expect, with recognisable values so a test can spot them in a consent URL. */
 const expectedCredentials: Record<ProviderName, { clientId: string; clientSecret: string }> = {
   spotify: { clientId: "spotify-client-id", clientSecret: "spotify-client-secret" },
   twitch: { clientId: "twitch-client-id", clientSecret: "twitch-client-secret" },
 }
+
+const credentials = Layer.succeed(ProviderCredentials, {
+  spotify: {
+    clientId: Redacted.make(expectedCredentials.spotify.clientId),
+    clientSecret: Redacted.make(expectedCredentials.spotify.clientSecret),
+  },
+  twitch: {
+    clientId: Redacted.make(expectedCredentials.twitch.clientId),
+    clientSecret: Redacted.make(expectedCredentials.twitch.clientSecret),
+  },
+})
 
 type Scenarios = Partial<Record<ProviderName, ProviderScenario>>
 
@@ -222,6 +238,9 @@ const make = Effect.gen(function* () {
       }
       yield* Ref.update(log, (entries) => [...entries, received])
       const scenario = (yield* Ref.get(scenarios))[endpoint.provider]
+      if (scenario?.latency !== undefined) {
+        yield* Effect.sleep(scenario.latency)
+      }
       const answer = endpoint.handle(scenario, received)
       if (answer === "unreachable") {
         return yield* new HttpClientError.HttpClientError({
@@ -254,6 +273,8 @@ const make = Effect.gen(function* () {
 export class FakeProviders extends Context.Service<FakeProviders, FakeProvidersService>()(
   "@twitch-integrations/api/test/FakeProviders",
 ) {
+  /** The Provider Credentials the fake token endpoints accept. */
+  static readonly credentials: Layer.Layer<ProviderCredentials> = credentials
   /** Both the control service and the `HttpClient` routed to the fakes, built together. */
   static readonly layer: Layer.Layer<FakeProviders | HttpClient.HttpClient> = Layer.effectContext(
     Effect.map(make, ({ service, client }) =>

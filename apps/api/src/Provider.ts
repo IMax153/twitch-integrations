@@ -49,7 +49,7 @@ export interface TokenResponse {
   readonly scopes: Option.Option<ReadonlyArray<string>>
 }
 
-export type ProviderOperation = "exchange" | "identity"
+export type ProviderOperation = "exchange" | "refresh" | "identity"
 
 /** Why a request to the Provider did not produce what it should have. */
 export type ProviderFailureReason =
@@ -94,6 +94,10 @@ export interface ProviderService extends ProviderDescription {
   readonly exchangeCode: (
     code: string,
     callbackUri: string,
+  ) => Effect.Effect<TokenResponse, ProviderRequestFailed>
+  /** Submits the refresh token grant for a new access token. */
+  readonly refresh: (
+    refreshToken: Redacted.Redacted<string>,
   ) => Effect.Effect<TokenResponse, ProviderRequestFailed>
   /** Asks the Provider which account the access token belongs to. */
   readonly fetchConnectedAccount: (
@@ -210,19 +214,28 @@ const make = (
             client_secret: Redacted.value(credentials.clientSecret),
           })
 
+    /** Submits one grant to the token endpoint and reads the token response. */
+    const requestTokens = (operation: ProviderOperation, form: Record<string, string>) =>
+      Effect.gen(function* () {
+        const request = authenticate(HttpClientRequest.post(description.tokenEndpoint), form)
+        const response = yield* client.execute(request)
+        return tokenResponse(yield* readTokenResponse(response))
+      }).pipe(Effect.mapError(failed(operation)))
+
     return {
       ...description,
       credentials,
       exchangeCode: (code, callbackUri) =>
-        Effect.gen(function* () {
-          const request = authenticate(HttpClientRequest.post(description.tokenEndpoint), {
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: callbackUri,
-          })
-          const response = yield* client.execute(request)
-          return tokenResponse(yield* readTokenResponse(response))
-        }).pipe(Effect.mapError(failed("exchange"))),
+        requestTokens("exchange", {
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: callbackUri,
+        }),
+      refresh: (refreshToken) =>
+        requestTokens("refresh", {
+          grant_type: "refresh_token",
+          refresh_token: Redacted.value(refreshToken),
+        }),
       fetchConnectedAccount: (accessToken) =>
         Effect.gen(function* () {
           const request = HttpClientRequest.get(description.identityEndpoint).pipe(

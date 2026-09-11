@@ -9,7 +9,8 @@ import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
 import { ConnectionLifecycle } from "../src/ConnectionLifecycle.ts"
 import { ConnectionStore } from "../src/ConnectionStore.ts"
-import type { TokenResponse } from "../src/Provider.ts"
+import { Provider, type TokenResponse } from "../src/Provider.ts"
+import { FakeProviders } from "./FakeProviders.ts"
 import { authorizedConnection } from "./fixtures.ts"
 
 /** A full token response: fresh tokens, an hour of validity, and a granted scope list. */
@@ -36,6 +37,9 @@ const strugglingConnection = {
 const lifecycleLayer = ConnectionLifecycle.layer.pipe(
   Layer.provideMerge(ConnectionStore.layer),
   Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
+  Layer.provide(Provider.layer("spotify")),
+  Layer.provide(FakeProviders.layer),
+  Layer.provide(FakeProviders.credentials),
 )
 
 const withLifecycle = <A, E>(

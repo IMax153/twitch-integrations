@@ -13,14 +13,16 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
-import * as Redacted from "effect/Redacted"
 import type * as Scope from "effect/Scope"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
-import { connectionObjectLayer, makeConnectionObject } from "../src/ConnectionObject.ts"
+import {
+  type ConnectionObjectShape,
+  connectionObjectLayer,
+  makeConnectionObject,
+} from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
-import { ProviderCredentials } from "../src/ProviderCredentials.ts"
 import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
 import { FakeProviders, type FakeProvidersService } from "./FakeProviders.ts"
 import { broadcaster } from "./fixtures.ts"
@@ -60,26 +62,16 @@ export interface SendOptions {
 /**
  * One Worker plus one in-process Connection object per Provider, each over
  * its own in-memory database, alive for the surrounding scope. The stores are
- * exposed so a test can arrange a Connection that no HTTP route creates yet.
+ * exposed so a test can arrange a Connection that no HTTP route creates yet,
+ * and the objects so a test can call an RPC no route reaches.
  */
 export interface BroadcasterWorld {
   readonly send: (request: Request, options?: SendOptions) => Effect.Effect<Response>
   readonly stores: Record<ProviderName, ConnectionStoreService>
+  readonly objects: Record<ProviderName, ConnectionObjectShape>
   /** The fake Providers every object talks to, shared so a test can script them. */
   readonly providers: FakeProvidersService
 }
-
-/** Fake Credentials with recognisable values, so a test can spot them in a consent URL. */
-const fakeCredentials = Layer.succeed(ProviderCredentials, {
-  spotify: {
-    clientId: Redacted.make("spotify-client-id"),
-    clientSecret: Redacted.make("spotify-client-secret"),
-  },
-  twitch: {
-    clientId: Redacted.make("twitch-client-id"),
-    clientSecret: Redacted.make("twitch-client-secret"),
-  },
-})
 
 /**
  * One object's services over a fresh in-memory database, playing one Durable
@@ -90,7 +82,7 @@ const inMemoryObject = (provider: ProviderName, httpClient: Layer.Layer<HttpClie
   Layer.build(
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
-      Layer.provide(fakeCredentials),
+      Layer.provide(FakeProviders.credentials),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(httpClient),
     ),
@@ -144,6 +136,6 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       )
     }
 
-    return { send, stores, providers }
+    return { send, stores, objects, providers }
   },
 )

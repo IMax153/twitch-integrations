@@ -1,12 +1,18 @@
 import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import type { ConnectionSummaryEncoded } from "@twitch-integrations/domain/ConnectionSummary"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
+import type {
+  ConnectionNotConfigured,
+  ReauthorizationRequired,
+} from "@twitch-integrations/domain/ConnectionErrors"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Redacted from "effect/Redacted"
 import { ConnectionObject, type ConnectionObjectShape } from "./ConnectionObject.ts"
 import type { AttemptClaim } from "./ConnectionStore.ts"
+import type { ProviderRequestFailed } from "./Provider.ts"
 
 export interface ConnectionsService {
   /** The Provider's summary as the object encoded it, ready to serve as JSON. */
@@ -28,6 +34,16 @@ export interface ConnectionsService {
     provider: ProviderName,
     claim: AttemptClaim,
   ) => Effect.Effect<BroadcasterResult>
+  /**
+   * A valid access token for the Provider's Connection, refreshed by the
+   * object first when it is about to expire.
+   */
+  readonly getAccessToken: (
+    provider: ProviderName,
+  ) => Effect.Effect<
+    Redacted.Redacted<string>,
+    ConnectionNotConfigured | ReauthorizationRequired | ProviderRequestFailed
+  >
 }
 
 /**
@@ -43,6 +59,7 @@ const fromObjects = (
   completeAuthorization: (provider, claim, code) =>
     objectFor(provider).completeAuthorization(claim, code),
   abandonAuthorization: (provider, claim) => objectFor(provider).abandonAuthorization(claim),
+  getAccessToken: (provider) => Effect.map(objectFor(provider).getAccessToken(), Redacted.make),
 })
 
 const make = Effect.map(ConnectionObject, (objects) =>
