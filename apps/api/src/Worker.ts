@@ -1,8 +1,4 @@
-import {
-  BroadcasterAccess,
-  devBroadcasterAccess,
-  enrollIn,
-} from "@twitch-integrations/infra/Access"
+import { devBroadcasterAccess, enrollment } from "@twitch-integrations/infra/Access"
 import {
   broadcasterHostname,
   broadcasterRoute,
@@ -31,7 +27,6 @@ const devPort = 1337
 export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
   "Worker",
   Effect.gen(function* () {
-    const access = yield* BroadcasterAccess
     // Yielding the Credentials here registers them as this Worker's secrets;
     // the Connection object reads the bound values when it starts.
     yield* ProviderCredentials.config
@@ -39,7 +34,7 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
       main: import.meta.url,
       domain: { name: broadcasterHostname, zoneName },
       routes: [broadcasterRoute("/setup/api*")],
-      ...enrollIn(access),
+      ...(yield* enrollment),
       workersDev: false,
       dev: { host: devHost, port: devPort, strictPort: true, access: devBroadcasterAccess },
     }

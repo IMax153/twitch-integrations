@@ -3,6 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 
 /**
@@ -19,11 +20,23 @@ export class BroadcasterAccess extends Context.Service<
   Cloudflare.Access.Application | undefined
 >()("@twitch-integrations/infra/BroadcasterAccess") {}
 
-/** The `access` prop enrolling a Worker in the application, or no prop at all under `alchemy dev`. */
-export const enrollIn = (
-  access: Cloudflare.Access.Application | undefined,
-): { readonly access: Cloudflare.Access.Application } | {} =>
-  access === undefined ? {} : { access }
+/**
+ * The `access` prop enrolling a Worker in the application: nothing under
+ * `alchemy dev`, and nothing inside workerd, where a Worker's init runs again
+ * over its bindings and the stack's services do not exist. At plan time the
+ * application must have been provided, so its absence there is a defect.
+ */
+export const enrollment: Effect.Effect<{ readonly access: Cloudflare.Access.Application } | {}> =
+  Effect.gen(function* () {
+    if (globalThis.__ALCHEMY_RUNTIME__) {
+      return {}
+    }
+    const access = yield* Effect.serviceOption(BroadcasterAccess)
+    if (Option.isNone(access)) {
+      return yield* Effect.die(new Error("BroadcasterAccess was not provided to the Worker init"))
+    }
+    return access.value === undefined ? {} : { access: access.value }
+  })
 
 /** The fixed Access `user_uuid` the simulated Broadcaster carries under `alchemy dev`. */
 const devBroadcasterUserUuid = "00000000-0000-4000-8000-000000000001"

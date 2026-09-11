@@ -1,6 +1,6 @@
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
-import { BroadcasterAccess, enrollIn } from "./Access.ts"
+import { enrollment } from "./Access.ts"
 import { broadcasterRoute, devHost } from "./Domain.ts"
 
 /**
@@ -16,11 +16,10 @@ const devPort = 5173
  * `/setup/` base and served as an assets-only Worker on the `/setup*` route.
  */
 export const WebSite = Effect.gen(function* () {
-  const access = yield* BroadcasterAccess
   return yield* Cloudflare.Website.Foldkit("Web", {
     rootDir: "apps/web",
     routes: [broadcasterRoute("/setup*")],
-    ...enrollIn(access),
+    ...(yield* enrollment),
     workersDev: false,
     dev: { host: devHost, port: devPort },
   })
