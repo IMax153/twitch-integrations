@@ -1,6 +1,7 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
 import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
 import * as Context from "effect/Context"
+import * as Crypto from "effect/Crypto"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -21,15 +22,16 @@ export interface AuthorizationFlowService {
 /** How long the Operator has to finish consent before the Attempt is stale. */
 const attemptLifetime = { minutes: 10 }
 
-// NOTE: the state value guards the callback against forgery, so it comes
-// from the platform's cryptographic source rather than Effect's seeded
-// pseudo-random `Random` service.
-// oxlint-disable-next-line effecttsgo/crypto-random-uuid-in-effect
-const randomState = Effect.sync(() => crypto.randomUUID())
-
 const make = Effect.gen(function* () {
   const store = yield* ConnectionStore
   const provider = yield* Provider
+  const crypto = yield* Crypto.Crypto
+
+  // NOTE: the state value guards the callback against forgery, so it comes
+  // from the platform's cryptographic source rather than the seeded
+  // pseudo-random `Random` service. The platform cannot fail to produce
+  // sixteen random bytes, so a failure is a defect.
+  const randomState = Effect.orDie(crypto.randomUUIDv4)
 
   const consentUrl = (attempt: AuthorizationAttempt): string => {
     const url = new URL(provider.authorizeUrl)
@@ -41,7 +43,7 @@ const make = Effect.gen(function* () {
     return url.toString()
   }
 
-  const flow: AuthorizationFlowService = {
+  return AuthorizationFlow.of({
     start: (operator, callbackUri) =>
       Effect.gen(function* () {
         const createdAt = yield* DateTime.now
@@ -57,8 +59,7 @@ const make = Effect.gen(function* () {
         yield* store.createAttempt(attempt)
         return consentUrl(attempt)
       }),
-  }
-  return flow
+  })
 })
 
 /** Starts Provider authorizations for one Provider's Connection. */
@@ -66,6 +67,9 @@ export class AuthorizationFlow extends Context.Service<
   AuthorizationFlow,
   AuthorizationFlowService
 >()("@twitch-integrations/api/AuthorizationFlow") {
-  static readonly layer: Layer.Layer<AuthorizationFlow, never, ConnectionStore | Provider> =
-    Layer.effect(AuthorizationFlow)(make)
+  static readonly layer: Layer.Layer<
+    AuthorizationFlow,
+    never,
+    ConnectionStore | Provider | Crypto.Crypto
+  > = Layer.effect(AuthorizationFlow)(make)
 }

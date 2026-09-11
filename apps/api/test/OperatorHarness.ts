@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import {
@@ -85,6 +86,7 @@ const inMemoryObject = (provider: ProviderName) =>
     connectionObjectLayer(provider).pipe(
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
       Layer.provide(fakeCredentials),
+      Layer.provide(NodeCrypto.layer),
     ),
   )
 

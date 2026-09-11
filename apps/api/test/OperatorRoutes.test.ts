@@ -97,13 +97,14 @@ describe("operator routes", () => {
         provider: "spotify" as const,
         consentScreen: "https://accounts.spotify.com/authorize",
         clientId: "spotify-client-id",
-        scope: "user-read-currently-playing user-read-playback-state",
+        scope: "user-modify-playback-state user-read-playback-state user-read-currently-playing",
       },
       {
         provider: "twitch" as const,
         consentScreen: "https://id.twitch.tv/oauth2/authorize",
         clientId: "twitch-client-id",
-        scope: "channel:read:redemptions chat:read",
+        scope:
+          "channel:read:redemptions channel:manage:redemptions user:read:chat user:write:chat moderator:manage:shoutouts",
       },
     ])("redirects a $provider Connect to its consent screen", ({ provider, ...expected }) =>
       Effect.gen(function* () {

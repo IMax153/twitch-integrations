@@ -24,15 +24,13 @@ export interface ProviderService extends ProviderDescription {
   readonly credentials: Credentials
 }
 
-// NOTE: the scope lists are the deployment's own choice; the spec's reference
-// lists were discarded with the document that held them. Widening a list
-// only takes effect on the next Connect.
+// NOTE: widening a scope list only takes effect on the next authorization.
 export const spotify: ProviderDescription = {
   name: "spotify",
   authorizeUrl: "https://accounts.spotify.com/authorize",
   tokenEndpoint: "https://accounts.spotify.com/api/token",
   clientAuthentication: "basic",
-  scopes: ["user-read-currently-playing", "user-read-playback-state"],
+  scopes: ["user-modify-playback-state", "user-read-playback-state", "user-read-currently-playing"],
   identityEndpoint: "https://api.spotify.com/v1/me",
 }
 
@@ -41,7 +39,13 @@ export const twitch: ProviderDescription = {
   authorizeUrl: "https://id.twitch.tv/oauth2/authorize",
   tokenEndpoint: "https://id.twitch.tv/oauth2/token",
   clientAuthentication: "body",
-  scopes: ["channel:read:redemptions", "chat:read"],
+  scopes: [
+    "channel:read:redemptions",
+    "channel:manage:redemptions",
+    "user:read:chat",
+    "user:write:chat",
+    "moderator:manage:shoutouts",
+  ],
   identityEndpoint: "https://id.twitch.tv/oauth2/validate",
 }
 

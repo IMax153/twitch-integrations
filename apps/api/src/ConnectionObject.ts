@@ -8,11 +8,13 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
+import type * as Crypto from "effect/Crypto"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AuthorizationFlow } from "./AuthorizationFlow.ts"
 import { ConnectionStore } from "./ConnectionStore.ts"
 import { Provider } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
+import * as WebCrypto from "./WebCrypto.ts"
 
 /**
  * The RPC surface one Provider's Connection object exposes to the Worker. A
@@ -56,15 +58,16 @@ export const makeConnectionObject = (
   })
 
 /**
- * The object's whole layer graph over a `SqlClient` and the Provider
- * Credentials: the store, the Provider chosen by name, and the flow.
+ * The object's whole layer graph over a `SqlClient`, the Provider
+ * Credentials, and a `Crypto`: the store, the Provider chosen by name, and
+ * the flow.
  */
 export const connectionObjectLayer = (
   provider: ProviderName,
 ): Layer.Layer<
   ConnectionStore | AuthorizationFlow,
   never,
-  SqlClient.SqlClient | ProviderCredentials
+  SqlClient.SqlClient | ProviderCredentials | Crypto.Crypto
 > =>
   Layer.provideMerge(
     AuthorizationFlow.layer,
@@ -97,6 +100,7 @@ export class ConnectionObject extends Cloudflare.DurableObject<ConnectionObject>
         connectionObjectLayer(provider).pipe(
           Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
           Layer.provide(ProviderCredentials.layer),
+          Layer.provide(WebCrypto.layer),
         ),
         instanceScope,
       )
