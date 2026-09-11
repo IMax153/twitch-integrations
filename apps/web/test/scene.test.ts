@@ -13,17 +13,8 @@ import {
   text,
 } from "foldkit/scene"
 import { describe, test } from "vite-plus/test"
-import { FetchConnections, Message, type Model, update, view } from "../src/main.ts"
-
-const connections = [
-  { provider: "spotify", status: "Not Configured" },
-  { provider: "twitch", status: "Not Configured" },
-] as const
-
-const loadedModel: Model = {
-  connections: AsyncData.succeed(connections),
-  maybeResult: Option.none(),
-}
+import { FetchConnections, Message, update, view } from "../src/main.ts"
+import { loadedModel, notConfiguredConnections as connections } from "./fixtures.ts"
 
 describe("view", () => {
   test("renders one Not Configured section per Provider with a Connect form", () => {
@@ -63,7 +54,8 @@ describe("view", () => {
     scene(
       { update, view },
       given({ ...loadedModel, maybeResult: Option.some("connected") }),
-      expect(selector("p.result.success")).toHaveText("Connection authorized."),
+      expect(role("status")).toHaveText("Connection authorized."),
+      expect(selector("p.result.success")).toExist(),
     )
   })
 
@@ -71,12 +63,13 @@ describe("view", () => {
     scene(
       { update, view },
       given({ ...loadedModel, maybeResult: Option.some("denied") }),
-      expect(selector("p.result.error")).toHaveText("Authorization was denied at the Provider."),
+      expect(role("status")).toHaveText("Authorization was denied at the Provider."),
+      expect(selector("p.result.error")).toExist(),
     )
   })
 
   test("renders no message without a result", () => {
-    scene({ update, view }, given(loadedModel), expect(selector("p.result")).not.toExist())
+    scene({ update, view }, given(loadedModel), expect(role("status")).not.toExist())
   })
 
   test("shows a loading state before the Connections arrive", () => {
@@ -94,7 +87,7 @@ describe("view", () => {
         ...loadedModel,
         connections: AsyncData.fail("The Connections could not be loaded."),
       }),
-      expect(text("The Connections could not be loaded.")).toExist(),
+      expect(role("alert")).toHaveText("The Connections could not be loaded."),
       click(role("button", { name: "Reload" })),
       expect(text("Loading the Connections.")).toExist(),
       Command.resolve(FetchConnections, Message.SucceededFetchConnections({ connections })),

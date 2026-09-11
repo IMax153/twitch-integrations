@@ -47,14 +47,14 @@ const contentTypes: Record<string, string> = {
 const fakeAssets = Layer.succeed(
   Assets,
   Assets.of({
-    fetch: (path) =>
+    fetch: (path, method = "GET") =>
       Effect.sync(() => {
         const body = webAssets[path]
         if (body === undefined) {
           return new Response("Not found", { status: 404 })
         }
         const extension = path.split(".").at(-1) ?? ""
-        return new Response(body, {
+        return new Response(method === "HEAD" ? null : body, {
           headers: { "content-type": contentTypes[extension] ?? "application/octet-stream" },
         })
       }),

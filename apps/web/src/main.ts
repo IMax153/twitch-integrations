@@ -16,19 +16,19 @@ import { evo } from "foldkit/struct"
 
 export const Flags = Schema.Struct({
   maybeResult: Schema.Option(OperatorResult),
-})
+}).annotate({ identifier: "Flags" })
 export type Flags = typeof Flags.Type
 
 // MODEL
 
-const Connections = Schema.Array(ConnectionSummary)
+const Connections = Schema.Array(ConnectionSummary).annotate({ identifier: "Connections" })
 
 const ConnectionsAsyncData = AsyncData.Schema(Connections, Schema.String)
 
 export const Model = Schema.Struct({
   connections: ConnectionsAsyncData.schema,
   maybeResult: Schema.Option(OperatorResult),
-})
+}).annotate({ identifier: "Model" })
 export type Model = typeof Model.Type
 
 // MESSAGE
@@ -78,13 +78,14 @@ export const update = (model: Model, message: Message) =>
         connections: (current) => AsyncData.settle(current, Result.fail(error)),
       }),
     }),
-    ClickedReload: () => ({
-      model: evo(model, {
-        connections: (connections) =>
-          Option.getOrElse(AsyncData.revalidateOrLoad(connections), () => connections),
+    ClickedReload: () =>
+      Option.match(AsyncData.revalidateOrLoad(model.connections), {
+        onNone: () => ({ model }),
+        onSome: (connections) => ({
+          model: evo(model, { connections: () => connections }),
+          commands: [FetchConnections()],
+        }),
       }),
-      commands: [FetchConnections()],
-    }),
   })
 
 // VIEW
@@ -97,6 +98,11 @@ const providerLabels: Record<ProviderName, string> = {
 interface ResultMessage {
   readonly kind: "success" | "error"
   readonly text: string
+}
+
+const resultClasses: Record<ResultMessage["kind"], string> = {
+  success: "result success",
+  error: "result error",
 }
 
 const resultMessages: Record<OperatorResult, ResultMessage> = {
@@ -120,7 +126,7 @@ const resultView = (maybeResult: Option.Option<OperatorResult>, h: HtmlBuilder<M
     onNone: () => h.empty,
     onSome: (result) => {
       const message = resultMessages[result]
-      return h.p([h.Class(`result ${message.kind}`)], [message.text])
+      return h.p([h.Class(resultClasses[message.kind]), h.Role("status")], [message.text])
     },
   })
 
@@ -131,6 +137,9 @@ const connectionView = ({ provider, status }: ConnectionSummary, h: HtmlBuilder<
     [
       h.h2([], [providerLabels[provider]]),
       h.p([h.Class("status")], [status]),
+      // NOTE: a native form submit, so the browser navigates to the Worker's
+      // authorize route and follows its redirect to the Provider. A plain
+      // button keeps the form free of client-side handling on purpose.
       h.form(
         [h.Method("post"), h.Action(`/oauth/${provider}/authorize`)],
         [h.button([h.Type("submit")], [status === "Not Configured" ? "Connect" : "Reconnect"])],
@@ -144,10 +153,12 @@ const connectionsView = (connections: ReadonlyArray<ConnectionSummary>, h: HtmlB
     Array.map(connections, (connection) => connectionView(connection, h)),
   )
 
+// NOTE: a plain button is enough for a single retry action; the page has no
+// other interactive widgets that would justify pulling in @foldkit/ui.
 const failureView = (error: string, h: HtmlBuilder<Message>) =>
   h.div(
     [h.Class("failure")],
-    [h.p([], [error]), h.button([h.OnClick(Message.ClickedReload())], ["Reload"])],
+    [h.p([h.Role("alert")], [error]), h.button([h.OnClick(Message.ClickedReload())], ["Reload"])],
   )
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({

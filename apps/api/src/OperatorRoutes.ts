@@ -32,23 +32,28 @@ const isPagePath = (path: string): boolean => isUnder(path, pagePrefix) && !isUn
 
 const connectionSummaries = HttpServerResponse.schemaJson(Schema.Array(ConnectionSummary))
 
-const describeConnections = connectionSummaries(
+const connectionsResponse = connectionSummaries(
   ProviderName.literals.map((provider) => ({ provider, status: "Not Configured" as const })),
 )
 
-const routes = HttpRouter.add("GET", "/setup/api/connections", describeConnections)
+const routes = HttpRouter.add("GET", "/setup/api/connections", connectionsResponse)
 
 const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
 
 /**
  * Serves the Operator Page from the assets: the matching file when there is
  * one, otherwise the app shell so deep links boot the app.
+ *
+ * The build sits at the assets root while the page is served under
+ * `/setup`, so the Worker strips the prefix itself rather than relying on
+ * the asset layer's `base` option. That keeps the mapping identical under
+ * `alchemy dev`, where the local asset server reads the directory as is.
  */
-const servePage = Effect.fn("servePage")(function* (path: string) {
+const servePage = Effect.fn("servePage")(function* (path: string, method: "GET" | "HEAD") {
   const assets = yield* Assets
   const assetPath = path.slice(pagePrefix.length) || "/"
-  const file = yield* assets.fetch(assetPath === "/" ? "/index.html" : assetPath)
-  const response = file.status === 404 ? yield* assets.fetch("/index.html") : file
+  const file = yield* assets.fetch(assetPath === "/" ? "/index.html" : assetPath, method)
+  const response = file.status === 404 ? yield* assets.fetch("/index.html", method) : file
   return HttpServerResponse.fromWeb(response)
 })
 
@@ -72,7 +77,7 @@ export const OperatorHttp = HttpRouter.toHttpEffect(routes).pipe(
         }
       }
       if (isPagePath(path) && (request.method === "GET" || request.method === "HEAD")) {
-        return yield* servePage(path)
+        return yield* servePage(path, request.method)
       }
       return yield* router
     }),

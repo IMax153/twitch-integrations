@@ -2,14 +2,8 @@ import * as Option from "effect/Option"
 import { AsyncData } from "foldkit"
 import { Command, given, message, model, story } from "foldkit/story"
 import { describe, expect, test } from "vite-plus/test"
-import { FetchConnections, Message, type Model, init, update } from "../src/main.ts"
-
-const connections = [
-  { provider: "spotify", status: "Not Configured" },
-  { provider: "twitch", status: "Not Configured" },
-] as const
-
-const loadingModel: Model = { connections: AsyncData.Loading(), maybeResult: Option.none() }
+import { FetchConnections, Message, init, update } from "../src/main.ts"
+import { loadingModel, notConfiguredConnections as connections } from "./fixtures.ts"
 
 describe("init", () => {
   test("starts loading the Connections and keeps the result from Flags", () => {
@@ -17,7 +11,7 @@ describe("init", () => {
 
     expect(AsyncData.isLoading(start.model.connections)).toBe(true)
     expect(start.model.maybeResult).toEqual(Option.some("connected"))
-    expect(start.commands).toHaveLength(1)
+    expect(start.commands?.map((command) => command.name)).toEqual([FetchConnections.name])
   })
 })
 

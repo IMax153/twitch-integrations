@@ -52,6 +52,17 @@ describe("operator routes", () => {
       }),
   )
 
+  it.effect("answers HEAD for the page without a body", () =>
+    Effect.gen(function* () {
+      const response = yield* sendOperatorRequest(
+        new Request("https://worker.example/setup", { method: "HEAD" }),
+        asOperator,
+      )
+      assert.strictEqual(response.status, 200)
+      assert.strictEqual(yield* Effect.promise(() => response.text()), "")
+    }),
+  )
+
   it.effect("serves the Operator Page's files", () =>
     Effect.gen(function* () {
       const response = yield* get("/setup/assets/app.js", asOperator)
