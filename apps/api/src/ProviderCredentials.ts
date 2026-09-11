@@ -16,6 +16,14 @@ export type ProviderCredentialsService = Record<ProviderName, Credentials>
 const credentials = (clientId: string, clientSecret: string): Config.Config<Credentials> =>
   Config.all({ clientId: Config.Redacted(clientId), clientSecret: Config.Redacted(clientSecret) })
 
+const config: Config.Config<ProviderCredentialsService> = Config.all({
+  spotify: credentials("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"),
+  twitch: credentials("TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"),
+})
+
+/** Config resolution cannot fail once the secrets are bound, so a miss is a deployment defect. */
+const make = Effect.orDie(config)
+
 /**
  * Both Providers' Credentials as redacted config. The Worker init yields
  * `config` so Alchemy registers the four values as Worker secrets; the
@@ -26,12 +34,6 @@ export class ProviderCredentials extends Context.Service<
   ProviderCredentials,
   ProviderCredentialsService
 >()("@twitch-integrations/api/ProviderCredentials") {
-  static readonly config: Config.Config<ProviderCredentialsService> = Config.all({
-    spotify: credentials("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"),
-    twitch: credentials("TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"),
-  })
-
-  static readonly layer = Layer.effect(ProviderCredentials)(
-    Effect.orDie(ProviderCredentials.config),
-  )
+  static readonly config = config
+  static readonly layer = Layer.effect(ProviderCredentials)(make)
 }

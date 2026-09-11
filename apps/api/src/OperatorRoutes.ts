@@ -48,7 +48,7 @@ const callbackPath = (provider: ProviderName) => `/oauth/${provider}/callback`
  * reports an incomplete one. A failure to resolve the identity is a platform
  * fault rather than a refusal, so it is left to surface as a defect.
  */
-const operatorIdentity: Effect.Effect<
+const readOperator: Effect.Effect<
   Option.Option<OperatorIdentity>,
   never,
   Effect.Services<typeof Cloudflare.Access.Context>
@@ -67,7 +67,7 @@ const authorizeResponse = Effect.gen(function* () {
   if (!isProviderName(provider)) {
     return unknownProvider
   }
-  const operator = yield* operatorIdentity
+  const operator = yield* readOperator
   if (Option.isNone(operator)) {
     return accessRequired
   }

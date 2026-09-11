@@ -41,11 +41,17 @@ export const twitch: ProviderDescription = {
   authorizeUrl: "https://id.twitch.tv/oauth2/authorize",
   tokenEndpoint: "https://id.twitch.tv/oauth2/token",
   clientAuthentication: "body",
-  scopes: ["channel:read:redemptions", "channel:manage:redemptions", "chat:read", "chat:edit"],
+  scopes: ["channel:read:redemptions", "chat:read"],
   identityEndpoint: "https://id.twitch.tv/oauth2/validate",
 }
 
 const descriptions: Record<ProviderName, ProviderDescription> = { spotify, twitch }
+
+const make = (name: ProviderName): Effect.Effect<ProviderService, never, ProviderCredentials> =>
+  Effect.map(ProviderCredentials, (credentials) => ({
+    ...descriptions[name],
+    credentials: credentials[name],
+  }))
 
 /**
  * The one Provider a Connection object talks to. Each object hosts one
@@ -55,10 +61,5 @@ export class Provider extends Context.Service<Provider, ProviderService>()(
   "@twitch-integrations/api/Provider",
 ) {
   static readonly layer = (name: ProviderName): Layer.Layer<Provider, never, ProviderCredentials> =>
-    Layer.effect(Provider)(
-      Effect.map(ProviderCredentials, (credentials) => ({
-        ...descriptions[name],
-        credentials: credentials[name],
-      })),
-    )
+    Layer.effect(Provider)(make(name))
 }

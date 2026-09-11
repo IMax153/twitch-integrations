@@ -101,11 +101,10 @@ export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope>
     const objects = yield* perProvider((provider) =>
       makeConnectionObject(provider).pipe(Effect.provide(services[provider])),
     )
-    const connections = Layer.succeed(Connections, {
-      describe: (provider) => objects[provider].describe(),
-      startAuthorization: (provider, operator, callbackUri) =>
-        objects[provider].startAuthorization(operator, callbackUri),
-    })
+    const connections = Layer.succeed(
+      Connections,
+      Connections.fromObjects((provider) => objects[provider]),
+    )
     const handler = yield* OperatorHttp.pipe(Effect.provide(connections))
 
     /**

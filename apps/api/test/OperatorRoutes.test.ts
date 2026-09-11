@@ -103,7 +103,7 @@ describe("operator routes", () => {
         provider: "twitch" as const,
         consentScreen: "https://id.twitch.tv/oauth2/authorize",
         clientId: "twitch-client-id",
-        scope: "channel:read:redemptions channel:manage:redemptions chat:read chat:edit",
+        scope: "channel:read:redemptions chat:read",
       },
     ])("redirects a $provider Connect to its consent screen", ({ provider, ...expected }) =>
       Effect.gen(function* () {
@@ -130,6 +130,16 @@ describe("operator routes", () => {
         const first = yield* startAttempt("spotify")
         const second = yield* startAttempt("spotify")
         assert.notStrictEqual(first.state, second.state)
+      }),
+    )
+
+    it.effect("refuses an Access identity that lacks a user id or email", () =>
+      Effect.gen(function* () {
+        const { send } = yield* world
+        const response = yield* send("POST", "/oauth/spotify/authorize", {
+          identity: { email: operator.email },
+        })
+        assert.strictEqual(response.status, 403)
       }),
     )
 
