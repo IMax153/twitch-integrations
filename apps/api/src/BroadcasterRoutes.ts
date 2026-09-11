@@ -1,5 +1,5 @@
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
-import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -17,12 +17,12 @@ import { Connections } from "./Connections.ts"
  * misconfigured application refuses rather than admits. The match is a plain
  * string prefix on purpose, so a path like `/setupx` is refused too.
  */
-const operatorPathPrefixes = ["/setup", "/oauth"]
+const broadcasterPathPrefixes = ["/setup", "/oauth"]
 
 const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 
-const isOperatorPath = (path: string): boolean =>
-  operatorPathPrefixes.some((prefix) => path.startsWith(prefix))
+const isBroadcasterPath = (path: string): boolean =>
+  broadcasterPathPrefixes.some((prefix) => path.startsWith(prefix))
 
 const connectionSummaries = HttpServerResponse.schemaJson(Schema.Array(ConnectionSummary))
 
@@ -42,14 +42,14 @@ const isProviderName = Schema.is(ProviderName)
 const callbackPath = (provider: ProviderName) => `/oauth/${provider}/callback`
 
 /**
- * The Operator behind the request, or none when Access reports an identity
+ * The Broadcaster behind the request, or none when Access reports an identity
  * without the fields an Attempt is bound to. The gate below already refused
  * a request with no context at all; this covers an identity provider that
  * reports an incomplete one. A failure to resolve the identity is a platform
  * fault rather than a refusal, so it is left to surface as a defect.
  */
-const readOperator: Effect.Effect<
-  Option.Option<OperatorIdentity>,
+const readBroadcaster: Effect.Effect<
+  Option.Option<BroadcasterIdentity>,
   never,
   Effect.Services<typeof Cloudflare.Access.Context>
 > = Effect.gen(function* () {
@@ -67,14 +67,14 @@ const authorizeResponse = Effect.gen(function* () {
   if (!isProviderName(provider)) {
     return unknownProvider
   }
-  const operator = yield* readOperator
-  if (Option.isNone(operator)) {
+  const broadcaster = yield* readBroadcaster
+  if (Option.isNone(broadcaster)) {
     return accessRequired
   }
   const request = yield* HttpServerRequest.HttpServerRequest
   const callbackUri = new URL(callbackPath(provider), request.originalUrl).toString()
   const connections = yield* Connections
-  const consentUrl = yield* connections.startAuthorization(provider, operator.value, callbackUri)
+  const consentUrl = yield* connections.startAuthorization(provider, broadcaster.value, callbackUri)
   return HttpServerResponse.redirect(consentUrl, { status: 303 })
 })
 
@@ -87,18 +87,18 @@ const routes = Layer.mergeAll(
 ).pipe(HttpRouter.provideRequest(Layer.effect(Connections)(Connections)))
 
 /**
- * The Worker's HTTP handler: the Access gate over the operator path prefixes,
+ * The Worker's HTTP handler: the Access gate over the broadcaster path prefixes,
  * then the router.
  *
  * The router layer is built once and its scope closed immediately. That is
  * fine while the router holds no scoped resources; a scoped middleware or
  * service added to `routes` would need this scope to outlive the handler.
  */
-export const OperatorHttp = HttpRouter.toHttpEffect(routes).pipe(
+export const BroadcasterHttp = HttpRouter.toHttpEffect(routes).pipe(
   Effect.map((router) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
-      if (isOperatorPath(pathOf(request.url))) {
+      if (isBroadcasterPath(pathOf(request.url))) {
         const access = yield* Cloudflare.Access.Context
         if (access === undefined) {
           return accessRequired

@@ -1,10 +1,10 @@
 import * as Schema from "effect/Schema"
 
 /**
- * The outcome a redirect back to the Operator Page carries in its `result`
+ * The outcome a redirect back to the Broadcaster Page carries in its `result`
  * query parameter. The page maps each value to one success or error message.
  */
-export const OperatorResult = Schema.Literals([
+export const BroadcasterResult = Schema.Literals([
   "connected",
   "denied",
   "missing-code",
@@ -12,5 +12,5 @@ export const OperatorResult = Schema.Literals([
   "identity-mismatch",
   "attempt-mismatch",
   "exchange-failed",
-]).annotate({ identifier: "OperatorResult" })
-export type OperatorResult = typeof OperatorResult.Type
+]).annotate({ identifier: "BroadcasterResult" })
+export type BroadcasterResult = typeof BroadcasterResult.Type

@@ -20,11 +20,11 @@ import { connectionObjectLayer, makeConnectionObject } from "../src/ConnectionOb
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
 import { ProviderCredentials } from "../src/ProviderCredentials.ts"
-import { OperatorHttp } from "../src/OperatorRoutes.ts"
-import { operator } from "./fixtures.ts"
+import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
+import { broadcaster } from "./fixtures.ts"
 
 type ExecutionContext = Parameters<typeof fromExecutionContext>[0]
-type OperatorHandler = Effect.Success<typeof OperatorHttp>
+type BroadcasterHandler = Effect.Success<typeof BroadcasterHttp>
 
 /**
  * Alchemy's request bridge is typed loosely; this pins the shape it has for
@@ -32,17 +32,17 @@ type OperatorHandler = Effect.Success<typeof OperatorHttp>
  */
 const sendThroughBridge = makeRequestEffect as unknown as (
   request: Request,
-  handler: OperatorHandler,
+  handler: BroadcasterHandler,
 ) => Effect.Effect<
   Response,
   never,
-  Exclude<Effect.Services<OperatorHandler>, HttpServerRequest.HttpServerRequest>
+  Exclude<Effect.Services<BroadcasterHandler>, HttpServerRequest.HttpServerRequest>
 >
 
-/** The Operator's identity in the shape Cloudflare Access reports it. */
-export const operatorIdentity: WorkerAccessIdentity = {
-  email: operator.email,
-  user_uuid: operator.userUuid,
+/** The Broadcaster's identity in the shape Cloudflare Access reports it. */
+export const broadcasterIdentity: WorkerAccessIdentity = {
+  email: broadcaster.email,
+  user_uuid: broadcaster.userUuid,
 }
 
 const fakeExecutionContext = (): ExecutionContext =>
@@ -60,7 +60,7 @@ export interface SendOptions {
  * its own in-memory database, alive for the surrounding scope. The stores are
  * exposed so a test can arrange a Connection that no HTTP route creates yet.
  */
-export interface OperatorWorld {
+export interface BroadcasterWorld {
   readonly send: (request: Request, options?: SendOptions) => Effect.Effect<Response>
   readonly stores: Record<ProviderName, ConnectionStoreService>
 }
@@ -96,7 +96,7 @@ const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A,
     Effect.map(make(provider), (value) => [provider, value] as const),
   ).pipe(Effect.map(Record.fromEntries))
 
-export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope> = Effect.gen(
+export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.Scope> = Effect.gen(
   function* () {
     const services = yield* perProvider(inMemoryObject)
     const stores = Record.map(services, Context.get(ConnectionStore))
@@ -107,7 +107,7 @@ export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope>
       Connections,
       Connections.fromObjects((provider) => objects[provider]),
     )
-    const handler = yield* OperatorHttp.pipe(Effect.provide(connections))
+    const handler = yield* BroadcasterHttp.pipe(Effect.provide(connections))
 
     /**
      * Sends a Web request through Alchemy's request bridge to the Worker's
@@ -115,7 +115,7 @@ export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope>
      * simulates a request admitted by Cloudflare Access; omitting it
      * simulates an unauthenticated request.
      */
-    const send: OperatorWorld["send"] = (request, options) => {
+    const send: BroadcasterWorld["send"] = (request, options) => {
       const env =
         options?.identity === undefined
           ? {}

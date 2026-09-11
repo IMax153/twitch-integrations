@@ -1,13 +1,13 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
 import type { Connection } from "@twitch-integrations/domain/Connection"
-import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 
-export const operator: OperatorIdentity = {
+export const broadcaster: BroadcasterIdentity = {
   userUuid: "8d5c1a1e-4b7e-4d2b-9c1a-2f3e4d5c6b7a",
-  email: "operator@example.com",
+  email: "broadcaster@example.com",
 }
 
 export const authorizedConnection: Connection = {
@@ -28,7 +28,7 @@ export const pendingAttempt: AuthorizationAttempt = {
   state: "state-abc",
   provider: "spotify",
   callbackUri: "https://worker.example/oauth/spotify/callback",
-  operator,
+  broadcaster,
   createdAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
   expiresAt: DateTime.makeUnsafe("2026-09-11T12:10:00Z"),
   consumed: false,

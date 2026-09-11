@@ -7,7 +7,7 @@ export class ConnectionNotConfigured extends Schema.TaggedError<ConnectionNotCon
   { provider: ProviderName },
 ) {}
 
-/** The Provider rejected the refresh token; the Operator must authorize again. */
+/** The Provider rejected the refresh token; the Broadcaster must authorize again. */
 export class ReauthorizationRequired extends Schema.TaggedError<ReauthorizationRequired>()(
   "ReauthorizationRequired",
   { provider: ProviderName },

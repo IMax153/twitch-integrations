@@ -1,6 +1,6 @@
 import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
 import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
-import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -23,12 +23,12 @@ import * as WebCrypto from "./WebCrypto.ts"
  * access into a call, so a bare Effect member would not survive the RPC.
  */
 export type ConnectionObjectShape = {
-  /** What the Operator Page shows for this Provider. */
+  /** What the Broadcaster Page shows for this Provider. */
   // oxlint-disable-next-line effecttsgo/lazy-effect
   readonly describe: () => Effect.Effect<ConnectionSummary>
-  /** Records an Authorization Attempt for the Operator and returns the consent URL. */
+  /** Records an Authorization Attempt for the Broadcaster and returns the consent URL. */
   readonly startAuthorization: (
-    operator: OperatorIdentity,
+    broadcaster: BroadcasterIdentity,
     callbackUri: string,
   ) => Effect.Effect<string>
 }

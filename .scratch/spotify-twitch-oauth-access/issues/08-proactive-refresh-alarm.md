@@ -1,6 +1,6 @@
 # 08: Proactive refresh alarm and retry policy
 
-**What to build:** Once a Connection is Authorized the Durable Object keeps it fresh on its own. A refresh runs five minutes before expiry, transient failures retry on a schedule, a rejected refresh token marks the Connection Reauthorization Required, and the Operator Page shows the next refresh time and the last refresh error.
+**What to build:** Once a Connection is Authorized the Durable Object keeps it fresh on its own. A refresh runs five minutes before expiry, transient failures retry on a schedule, a rejected refresh token marks the Connection Reauthorization Required, and the Broadcaster Page shows the next refresh time and the last refresh error.
 
 **Blocked by:** 07 (Token request with on-demand refresh)
 
@@ -13,6 +13,6 @@
 - [ ] A non-rate-limit 4xx marks Reauthorization Required, clears the next refresh time, and deletes the alarm
 - [ ] A successful refresh resets the retry count, clears the last error, and schedules the next alarm
 - [ ] A new authorization replaces any pending schedule
-- [ ] The Connection records the last refresh error message and time; the Operator Page shows next refresh time and last error
+- [ ] The Connection records the last refresh error message and time; the Broadcaster Page shows next refresh time and last error
 - [ ] Alarm scheduling goes through a small alarm service so tests can observe scheduled times without workerd
 - [ ] Tests drive the alarm handler under `TestClock` through success, each retry tier, and the reauthorization transition

@@ -1,5 +1,5 @@
 import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
-import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -11,7 +11,7 @@ export interface ConnectionsService {
   /** Starts an Authorization Attempt on the Provider's object and returns the consent URL. */
   readonly startAuthorization: (
     provider: ProviderName,
-    operator: OperatorIdentity,
+    broadcaster: BroadcasterIdentity,
     callbackUri: string,
   ) => Effect.Effect<string>
 }
@@ -24,8 +24,8 @@ const fromObjects = (
   objectFor: (provider: ProviderName) => ConnectionObjectShape,
 ): ConnectionsService => ({
   describe: (provider) => objectFor(provider).describe(),
-  startAuthorization: (provider, operator, callbackUri) =>
-    objectFor(provider).startAuthorization(operator, callbackUri),
+  startAuthorization: (provider, broadcaster, callbackUri) =>
+    objectFor(provider).startAuthorization(broadcaster, callbackUri),
 })
 
 const make = Effect.map(ConnectionObject, (objects) =>

@@ -1,5 +1,5 @@
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
-import { OperatorResult } from "@twitch-integrations/domain/OperatorResult"
+import { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
@@ -15,7 +15,7 @@ import { evo } from "foldkit/struct"
 // FLAGS
 
 export const Flags = Schema.Struct({
-  maybeResult: Schema.Option(OperatorResult),
+  maybeResult: Schema.Option(BroadcasterResult),
 }).annotate({ identifier: "Flags" })
 export type Flags = typeof Flags.Type
 
@@ -27,7 +27,7 @@ const ConnectionsAsyncData = AsyncData.Schema(Connections, Schema.String)
 
 export const Model = Schema.Struct({
   connections: ConnectionsAsyncData.schema,
-  maybeResult: Schema.Option(OperatorResult),
+  maybeResult: Schema.Option(BroadcasterResult),
 }).annotate({ identifier: "Model" })
 export type Model = typeof Model.Type
 
@@ -105,7 +105,7 @@ const resultClasses: Record<ResultMessage["kind"], string> = {
   error: "result error",
 }
 
-const resultMessages: Record<OperatorResult, ResultMessage> = {
+const resultMessages: Record<BroadcasterResult, ResultMessage> = {
   connected: { kind: "success", text: "Connection authorized." },
   denied: { kind: "error", text: "Authorization was denied at the Provider." },
   "missing-code": { kind: "error", text: "The Provider returned no authorization code." },
@@ -121,7 +121,7 @@ const resultMessages: Record<OperatorResult, ResultMessage> = {
   "exchange-failed": { kind: "error", text: "Exchanging the authorization code failed." },
 }
 
-const resultView = (maybeResult: Option.Option<OperatorResult>, h: HtmlBuilder<Message>) =>
+const resultView = (maybeResult: Option.Option<BroadcasterResult>, h: HtmlBuilder<Message>) =>
   Option.match(maybeResult, {
     onNone: () => h.empty,
     onSome: (result) => {

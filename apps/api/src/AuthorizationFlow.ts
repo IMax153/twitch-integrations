@@ -1,5 +1,5 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
-import type { OperatorIdentity } from "@twitch-integrations/domain/OperatorIdentity"
+import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as DateTime from "effect/DateTime"
@@ -11,15 +11,15 @@ import { Provider } from "./Provider.ts"
 
 export interface AuthorizationFlowService {
   /**
-   * Records an Authorization Attempt for the Operator and returns the
+   * Records an Authorization Attempt for the Broadcaster and returns the
    * Provider consent URL the browser must be sent to. The callback URI is
    * stored with the Attempt so the callback can only complete it from the
    * same origin.
    */
-  readonly start: (operator: OperatorIdentity, callbackUri: string) => Effect.Effect<string>
+  readonly start: (broadcaster: BroadcasterIdentity, callbackUri: string) => Effect.Effect<string>
 }
 
-/** How long the Operator has to finish consent before the Attempt is stale. */
+/** How long the Broadcaster has to finish consent before the Attempt is stale. */
 const attemptLifetime = { minutes: 10 }
 
 const make = Effect.gen(function* () {
@@ -44,14 +44,14 @@ const make = Effect.gen(function* () {
   }
 
   return AuthorizationFlow.of({
-    start: (operator, callbackUri) =>
+    start: (broadcaster, callbackUri) =>
       Effect.gen(function* () {
         const createdAt = yield* DateTime.now
         const attempt: AuthorizationAttempt = {
           state: yield* randomState,
           provider: provider.name,
           callbackUri,
-          operator,
+          broadcaster,
           createdAt,
           expiresAt: DateTime.add(createdAt, attemptLifetime),
           consumed: false,

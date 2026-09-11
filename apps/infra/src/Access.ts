@@ -9,20 +9,20 @@ import * as Redacted from "effect/Redacted"
  * Enrolling a Worker is what makes Cloudflare populate `ctx.access`; a
  * hostname-scoped application admits the request but leaves it empty.
  */
-export class OperatorAccess extends Context.Service<
-  OperatorAccess,
+export class BroadcasterAccess extends Context.Service<
+  BroadcasterAccess,
   Cloudflare.Access.Application
->()("@twitch-integrations/infra/OperatorAccess") {}
+>()("@twitch-integrations/infra/BroadcasterAccess") {}
 
-/** The fixed Access `user_uuid` the simulated Operator carries under `alchemy dev`. */
-const devOperatorUserUuid = "00000000-0000-4000-8000-000000000001"
+/** The fixed Access `user_uuid` the simulated Broadcaster carries under `alchemy dev`. */
+const devBroadcasterUserUuid = "00000000-0000-4000-8000-000000000001"
 
-/** The Access stub a Worker uses under `alchemy dev`, matching the allowed Operator. */
-export const devOperatorAccess = {
+/** The Access stub a Worker uses under `alchemy dev`, matching the allowed Broadcaster. */
+export const devBroadcasterAccess = {
   aud: "dev",
   identity: {
     email: Config.String("TWITCH_BROADCASTER_EMAIL"),
-    user_uuid: devOperatorUserUuid,
+    user_uuid: devBroadcasterUserUuid,
   },
 }
 
@@ -48,7 +48,9 @@ export const CloudflareAccess = Effect.gen(function* () {
   // A hostname-scoped application cannot be converted in place: Cloudflare
   // keeps its `domain` and rejects destinations that omit it. The Worker-scoped
   // application therefore carries its own logical id, and the first deploy
-  // replaces the old one.
+  // replaces the old one. The id keeps the old Operator name on purpose:
+  // the domain term is now Broadcaster, but renaming a logical id replaces
+  // the deployed application.
   return yield* Cloudflare.Access.Application("OperatorWorkersAccess", {
     type: "self_hosted",
     name: "Twitch Integrations",

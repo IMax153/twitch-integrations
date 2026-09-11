@@ -11,7 +11,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 /** What a callback must present to consume the Attempt it belongs to. */
 export type AttemptClaim = Pick<
   AuthorizationAttempt,
-  "state" | "provider" | "callbackUri" | "operator"
+  "state" | "provider" | "callbackUri" | "broadcaster"
 >
 
 export interface ConnectionStoreService {
@@ -23,7 +23,7 @@ export interface ConnectionStoreService {
   /**
    * Marks the matching Attempt consumed and reports whether one was. A second
    * consume, an expired Attempt, or a claim whose Provider, callback URI, or
-   * Operator differs from the stored Attempt all report false.
+   * Broadcaster differs from the stored Attempt all report false.
    */
   readonly consumeAttempt: (claim: AttemptClaim) => Effect.Effect<boolean>
 }
@@ -59,13 +59,33 @@ const createTables = (sql: SqlClient.SqlClient) =>
         state TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
         callback_uri TEXT NOT NULL,
-        operator_user_uuid TEXT NOT NULL,
-        operator_email TEXT NOT NULL,
+        broadcaster_user_uuid TEXT NOT NULL,
+        broadcaster_email TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
         consumed INTEGER NOT NULL DEFAULT 0
       )
     `
+    yield* renameLegacyBroadcasterColumns(sql)
+  })
+
+interface ColumnRow {
+  readonly name: string
+}
+
+/**
+ * A database created before Operator was renamed Broadcaster still carries
+ * the old column names; rename them in place so its Attempts keep working.
+ * Runs every time the store builds and is a no-op once renamed.
+ */
+const renameLegacyBroadcasterColumns = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function* () {
+    const columns =
+      yield* sql<ColumnRow>`SELECT name FROM pragma_table_info('authorization_attempt')`
+    if (columns.some((column) => column.name === "operator_user_uuid")) {
+      yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_user_uuid TO broadcaster_user_uuid`
+      yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_email TO broadcaster_email`
+    }
   })
 
 const make = Effect.gen(function* () {
@@ -102,8 +122,8 @@ const make = Effect.gen(function* () {
           state: attempt.state,
           provider: attempt.provider,
           callback_uri: attempt.callbackUri,
-          operator_user_uuid: attempt.operator.userUuid,
-          operator_email: attempt.operator.email,
+          broadcaster_user_uuid: attempt.broadcaster.userUuid,
+          broadcaster_email: attempt.broadcaster.email,
           created_at: millis(attempt.createdAt),
           expires_at: millis(attempt.expiresAt),
           consumed: attempt.consumed ? 1 : 0,
@@ -121,8 +141,8 @@ const make = Effect.gen(function* () {
           WHERE state = ${claim.state}
             AND provider = ${claim.provider}
             AND callback_uri = ${claim.callbackUri}
-            AND operator_user_uuid = ${claim.operator.userUuid}
-            AND operator_email = ${claim.operator.email}
+            AND broadcaster_user_uuid = ${claim.broadcaster.userUuid}
+            AND broadcaster_email = ${claim.broadcaster.email}
             AND consumed = 0
             AND expires_at > ${millis(now)}
           RETURNING state

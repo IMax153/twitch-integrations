@@ -5,20 +5,25 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
 import type { AttemptClaim } from "../src/ConnectionStore.ts"
-import { makeOperatorWorld, operatorIdentity, type SendOptions } from "./OperatorHarness.ts"
-import { authorizedConnection, operator } from "./fixtures.ts"
+import {
+  makeBroadcasterWorld,
+  broadcasterIdentity,
+  type SendOptions,
+} from "./BroadcasterHarness.ts"
+import { authorizedConnection, broadcaster } from "./fixtures.ts"
 
-const asOperator = { identity: operatorIdentity }
+const asBroadcaster = { identity: broadcasterIdentity }
 
 const decodeConnections = Schema.decodeUnknownEffect(
   Schema.Array(ConnectionSummary).annotate({ identifier: "Connections" }),
 )
 
-const world = Effect.map(makeOperatorWorld, (world) => {
+const world = Effect.map(makeBroadcasterWorld, (world) => {
   const send = (method: "GET" | "POST", path: string, options?: SendOptions) =>
     world.send(new Request(`https://worker.example${path}`, { method }), options)
   const get = (path: string, options?: SendOptions) => send("GET", path, options)
-  const authorize = (provider: string) => send("POST", `/oauth/${provider}/authorize`, asOperator)
+  const authorize = (provider: string) =>
+    send("POST", `/oauth/${provider}/authorize`, asBroadcaster)
   /** Starts an authorization and returns the state the consent URL carries plus the claim a callback would present. */
   const startAttempt = (provider: ProviderName) =>
     Effect.map(authorize(provider), (response) => {
@@ -28,12 +33,12 @@ const world = Effect.map(makeOperatorWorld, (world) => {
         state,
         provider,
         callbackUri: consent.searchParams.get("redirect_uri") ?? "",
-        operator,
+        broadcaster,
       }
       return { state, claim }
     })
   const getConnections = Effect.gen(function* () {
-    const response = yield* get("/setup/api/connections", asOperator)
+    const response = yield* get("/setup/api/connections", asBroadcaster)
     assert.strictEqual(response.status, 200)
     assert.match(response.headers.get("content-type") ?? "", /^application\/json/)
     return yield* decodeConnections(yield* Effect.promise(() => response.json()))
@@ -41,7 +46,7 @@ const world = Effect.map(makeOperatorWorld, (world) => {
   return { ...world, send, get, authorize, startAttempt, getConnections }
 })
 
-describe("operator routes", () => {
+describe("broadcaster routes", () => {
   it.effect.each(["/setup", "/setup/api/connections"])(
     "refuses GET %s without an Access context",
     (path) =>
@@ -62,7 +67,7 @@ describe("operator routes", () => {
       }),
   )
 
-  it.effect("leaves routes outside the operator prefixes public", () =>
+  it.effect("leaves routes outside the broadcaster prefixes public", () =>
     Effect.gen(function* () {
       const { get } = yield* world
       const response = yield* get("/")
@@ -138,7 +143,7 @@ describe("operator routes", () => {
       Effect.gen(function* () {
         const { send } = yield* world
         const response = yield* send("POST", "/oauth/spotify/authorize", {
-          identity: { email: operator.email },
+          identity: { email: broadcaster.email },
         })
         assert.strictEqual(response.status, 403)
       }),
@@ -147,7 +152,7 @@ describe("operator routes", () => {
     it.effect("does not accept GET on the authorize route", () =>
       Effect.gen(function* () {
         const { get } = yield* world
-        const response = yield* get("/oauth/spotify/authorize", asOperator)
+        const response = yield* get("/oauth/spotify/authorize", asBroadcaster)
         assert.strictEqual(response.status, 404)
       }),
     )
@@ -169,12 +174,14 @@ describe("operator routes", () => {
       }),
     )
 
-    it.effect("binds the Attempt to the Operator who started it", () =>
+    it.effect("binds the Attempt to the Broadcaster who started it", () =>
       Effect.gen(function* () {
         const { stores, startAttempt } = yield* world
         const { claim } = yield* startAttempt("spotify")
-        const somebodyElse = { userUuid: "not-the-operator", email: "else@example.com" }
-        assert.isFalse(yield* stores.spotify.consumeAttempt({ ...claim, operator: somebodyElse }))
+        const somebodyElse = { userUuid: "not-the-broadcaster", email: "else@example.com" }
+        assert.isFalse(
+          yield* stores.spotify.consumeAttempt({ ...claim, broadcaster: somebodyElse }),
+        )
       }),
     )
 
@@ -191,7 +198,7 @@ describe("operator routes", () => {
   it.effect("answers 404 for an unknown API path", () =>
     Effect.gen(function* () {
       const { get } = yield* world
-      const response = yield* get("/setup/api/nope", asOperator)
+      const response = yield* get("/setup/api/nope", asBroadcaster)
       assert.strictEqual(response.status, 404)
     }),
   )

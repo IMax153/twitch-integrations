@@ -1,6 +1,6 @@
 # 06: Callback failure outcomes
 
-**What to build:** Every way a callback can go wrong sends the Operator back to the Operator Page with a specific error message and leaves any existing Connection untouched.
+**What to build:** Every way a callback can go wrong sends the Broadcaster back to the Broadcaster Page with a specific error message and leaves any existing Connection untouched.
 
 **Blocked by:** 05 (Complete an authorization, happy path)
 
