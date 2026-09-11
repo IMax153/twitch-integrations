@@ -19,7 +19,11 @@ import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AuthorizationFlow } from "./AuthorizationFlow.ts"
 import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
-import { type AttemptClaim, ConnectionStore } from "./ConnectionStore.ts"
+import {
+  type AttemptClaim,
+  type AttemptRejectionReason,
+  ConnectionStore,
+} from "./ConnectionStore.ts"
 import { Provider } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 import * as WebCrypto from "./WebCrypto.ts"
@@ -52,6 +56,20 @@ export type ConnectionObjectShape = {
     claim: AttemptClaim,
     code: string,
   ) => Effect.Effect<BroadcasterResult>
+  /**
+   * Ends the Attempt the claim names after the Provider reported an error
+   * instead of a code, and reports the outcome the Broadcaster Page should
+   * show: denied when the Attempt was the Broadcaster's to end, otherwise
+   * why the claim missed.
+   */
+  readonly abandonAuthorization: (claim: AttemptClaim) => Effect.Effect<BroadcasterResult>
+}
+
+/** The result the Broadcaster Page shows for each way a claim can miss its Attempt. */
+const rejectionResult: Record<AttemptRejectionReason, BroadcasterResult> = {
+  Expired: "attempt-expired",
+  IdentityMismatch: "identity-mismatch",
+  Mismatch: "attempt-mismatch",
 }
 
 /**
@@ -82,6 +100,8 @@ export const makeConnectionObject = (
           expiresAt: Option.some(connection.expiresAt),
         }),
       })
+    const rejected = (rejection: { readonly reason: AttemptRejectionReason }) =>
+      Effect.succeed(rejectionResult[rejection.reason])
     return {
       describe: () => store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary)),
       startAuthorization: flow.start,
@@ -89,10 +109,17 @@ export const makeConnectionObject = (
         flow.complete(claim, code).pipe(
           Effect.as<BroadcasterResult>("connected"),
           Effect.catchTags({
-            AuthorizationAttemptRejected: () => Effect.succeed("attempt-mismatch" as const),
+            AuthorizationAttemptRejected: rejected,
             ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
           }),
         ),
+      abandonAuthorization: (claim) =>
+        flow
+          .abandon(claim)
+          .pipe(
+            Effect.as<BroadcasterResult>("denied"),
+            Effect.catchTag("AuthorizationAttemptRejected", rejected),
+          ),
     }
   })
 

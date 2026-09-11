@@ -11,6 +11,7 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { Connections } from "./Connections.ts"
+import type { AttemptClaim } from "./ConnectionStore.ts"
 
 /**
  * Path prefixes that must carry an Access context. Cloudflare Access gates
@@ -125,23 +126,27 @@ const broadcasterPageRedirect = (origin: string, result: BroadcasterResult) => {
   return HttpServerResponse.redirect(page.toString(), { status: 303 })
 }
 
+/**
+ * What the callback carries, decided before the object is involved: a
+ * Provider that reports an error instead of a code, whatever the error, has
+ * refused the authorization, and a Provider that reports neither has sent a
+ * callback the Attempt cannot be finished from.
+ */
 const callbackResponse = oauthRoute(({ provider, broadcaster, url }) =>
   Effect.gen(function* () {
-    const code = url.searchParams.get("code")
-    if (code === null) {
-      return broadcasterPageRedirect(url.origin, "missing-code")
-    }
     const connections = yield* Connections
-    const result = yield* connections.completeAuthorization(
+    const claim: AttemptClaim = {
+      state: url.searchParams.get("state") ?? "",
       provider,
-      {
-        state: url.searchParams.get("state") ?? "",
-        provider,
-        callbackUri: callbackUri(url.origin, provider),
-        broadcaster,
-      },
-      code,
-    )
+      callbackUri: callbackUri(url.origin, provider),
+      broadcaster,
+    }
+    const code = url.searchParams.get("code")
+    const result = url.searchParams.has("error")
+      ? yield* connections.abandonAuthorization(provider, claim)
+      : code === null
+        ? "missing-code"
+        : yield* connections.completeAuthorization(provider, claim, code)
     return broadcasterPageRedirect(url.origin, result)
   }),
 )

@@ -1,6 +1,7 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
 import { Connection } from "@twitch-integrations/domain/Connection"
 import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -14,6 +15,19 @@ export type AttemptClaim = Pick<
   "state" | "provider" | "callbackUri" | "broadcaster"
 >
 
+/**
+ * Why a claim consumed nothing. `Mismatch` covers everything the callback
+ * cannot be told apart from a forgery: an unknown state value, an Attempt
+ * already consumed, or a Provider or callback URI other than the one the
+ * Attempt was started with.
+ */
+export type AttemptRejectionReason = "Expired" | "IdentityMismatch" | "Mismatch"
+
+/** The callback presented a claim no pending, unexpired Attempt matches. */
+export class AuthorizationAttemptRejected extends Data.TaggedError("AuthorizationAttemptRejected")<{
+  readonly reason: AttemptRejectionReason
+}> {}
+
 export interface ConnectionStoreService {
   /** The stored Connection, or none when the Provider is Not Configured. */
   readonly readConnection: Effect.Effect<Option.Option<Connection>>
@@ -21,11 +35,13 @@ export interface ConnectionStoreService {
   readonly writeConnection: (connection: Connection) => Effect.Effect<void>
   readonly createAttempt: (attempt: AuthorizationAttempt) => Effect.Effect<void>
   /**
-   * Marks the matching Attempt consumed and reports whether one was. A second
-   * consume, an expired Attempt, or a claim whose Provider, callback URI, or
-   * Broadcaster differs from the stored Attempt all report false.
+   * Marks the matching Attempt consumed, or reports why none matched. A
+   * second consume, an expired Attempt, or a claim whose Provider, callback
+   * URI, or Broadcaster differs from the stored Attempt are all rejections.
    */
-  readonly consumeAttempt: (claim: AttemptClaim) => Effect.Effect<boolean>
+  readonly consumeAttempt: (
+    claim: AttemptClaim,
+  ) => Effect.Effect<void, AuthorizationAttemptRejected>
 }
 
 /** The Connection is one Schema-validated JSON document in a single-row table. */
@@ -41,6 +57,44 @@ interface ConnectionRow {
 
 interface ConsumedRow {
   readonly state: string
+}
+
+/** What the store looks at to explain a claim that consumed nothing. */
+interface AttemptRow {
+  readonly provider: string
+  readonly callback_uri: string
+  readonly broadcaster_user_uuid: string
+  readonly broadcaster_email: string
+  readonly expires_at: number
+  readonly consumed: number
+}
+
+/**
+ * Why the claim did not match the Attempt stored under its state value, if
+ * any. Checked in order of how much the callback may be told: a forged or
+ * replayed claim learns nothing, a wrong Broadcaster learns that much, and
+ * only a claim that is otherwise right learns the Attempt expired.
+ */
+const rejectionReason = (
+  claim: AttemptClaim,
+  row: AttemptRow | undefined,
+  now: DateTime.DateTime,
+): AttemptRejectionReason => {
+  if (
+    row === undefined ||
+    row.consumed !== 0 ||
+    row.provider !== claim.provider ||
+    row.callback_uri !== claim.callbackUri
+  ) {
+    return "Mismatch"
+  }
+  if (
+    row.broadcaster_user_uuid !== claim.broadcaster.userUuid ||
+    row.broadcaster_email !== claim.broadcaster.email
+  ) {
+    return "IdentityMismatch"
+  }
+  return row.expires_at <= millis(now) ? "Expired" : "Mismatch"
 }
 
 /** Times are stored as epoch milliseconds so SQLite compares them as integers. */
@@ -132,7 +186,8 @@ const make = Effect.gen(function* () {
 
     // NOTE: one conditional UPDATE, so a concurrent second callback cannot
     // consume the same Attempt: SQLite runs the statement atomically and only
-    // the first matches the unconsumed row.
+    // the first matches the unconsumed row. The SELECT that explains a miss
+    // runs after, so a claim that lost such a race reads the row as consumed.
     consumeAttempt: (claim) =>
       Effect.gen(function* () {
         const now = yield* DateTime.now
@@ -147,8 +202,17 @@ const make = Effect.gen(function* () {
             AND expires_at > ${millis(now)}
           RETURNING state
         `
-        return consumed.length > 0
-      }).pipe(Effect.orDie),
+        if (consumed.length > 0) {
+          return
+        }
+        const rows = yield* sql<AttemptRow>`
+          SELECT provider, callback_uri, broadcaster_user_uuid, broadcaster_email, expires_at, consumed
+          FROM authorization_attempt WHERE state = ${claim.state}
+        `
+        return yield* new AuthorizationAttemptRejected({
+          reason: rejectionReason(claim, rows[0], now),
+        })
+      }).pipe(Effect.catchTag("SqlError", Effect.die)),
   }
   return store
 })

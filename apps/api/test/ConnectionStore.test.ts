@@ -7,7 +7,11 @@ import * as Option from "effect/Option"
 import * as TestClock from "effect/testing/TestClock"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
-import { type AttemptClaim, ConnectionStore } from "../src/ConnectionStore.ts"
+import {
+  type AttemptClaim,
+  type AttemptRejectionReason,
+  ConnectionStore,
+} from "../src/ConnectionStore.ts"
 import { authorizedConnection, pendingAttempt } from "./fixtures.ts"
 
 /** The claim a callback for this Attempt would present. */
@@ -32,6 +36,19 @@ const storeLayer = ConnectionStore.layer.pipe(
 
 const withStore = <A, E>(body: (store: ConnectionStore["Service"]) => Effect.Effect<A, E>) =>
   Effect.flatMap(ConnectionStore, body).pipe(Effect.provide(storeLayer))
+
+/** Consumes with the claim and reports why the store refused, failing the test if it did not. */
+const rejectionOf = (store: ConnectionStore["Service"], claim: AttemptClaim) =>
+  Effect.gen(function* () {
+    const rejection = yield* Effect.flip(store.consumeAttempt(claim))
+    return rejection.reason
+  })
+
+const expectRejection = (
+  store: ConnectionStore["Service"],
+  claim: AttemptClaim,
+  reason: AttemptRejectionReason,
+) => Effect.map(rejectionOf(store, claim), (actual) => assert.strictEqual(actual, reason))
 
 /** The Attempt table as the store created it before Operator was renamed Broadcaster. */
 const createLegacyAttemptTable = Effect.flatMap(
@@ -74,8 +91,8 @@ describe("ConnectionStore", () => {
     withStore((store) =>
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
-        assert.isTrue(yield* store.consumeAttempt(claim))
-        assert.isFalse(yield* store.consumeAttempt(claim))
+        yield* store.consumeAttempt(claim)
+        yield* expectRejection(store, claim, "Mismatch")
       }),
     ),
   )
@@ -85,7 +102,7 @@ describe("ConnectionStore", () => {
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
         yield* TestClock.setTime(DateTime.toEpochMillis(pendingAttempt.expiresAt))
-        assert.isFalse(yield* store.consumeAttempt(claim))
+        yield* expectRejection(store, claim, "Expired")
       }),
     ),
   )
@@ -95,7 +112,7 @@ describe("ConnectionStore", () => {
       yield* createLegacyAttemptTable
       const store = yield* Effect.provide(ConnectionStore, ConnectionStore.layer)
       yield* store.createAttempt(pendingAttempt)
-      assert.isTrue(yield* store.consumeAttempt(claim))
+      yield* store.consumeAttempt(claim)
     }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
   )
 
@@ -104,25 +121,65 @@ describe("ConnectionStore", () => {
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
         yield* TestClock.setTime(DateTime.toEpochMillis(pendingAttempt.expiresAt) - 1)
-        assert.isTrue(yield* store.consumeAttempt(claim))
+        yield* store.consumeAttempt(claim)
       }),
     ),
   )
 
-  const mismatches: ReadonlyArray<[string, Partial<typeof claim>]> = [
-    ["state", { state: "state-other" }],
-    ["Provider", { provider: "twitch" }],
-    ["callback URI", { callbackUri: "https://elsewhere.example/oauth/spotify/callback" }],
-    ["Broadcaster user", { broadcaster: { ...claim.broadcaster, userUuid: "someone-else" } }],
-    ["Broadcaster email", { broadcaster: { ...claim.broadcaster, email: "someone@else.example" } }],
+  const mismatches: ReadonlyArray<[string, Partial<typeof claim>, AttemptRejectionReason]> = [
+    ["state", { state: "state-other" }, "Mismatch"],
+    ["Provider", { provider: "twitch" }, "Mismatch"],
+    [
+      "callback URI",
+      { callbackUri: "https://elsewhere.example/oauth/spotify/callback" },
+      "Mismatch",
+    ],
+    [
+      "Broadcaster user",
+      { broadcaster: { ...claim.broadcaster, userUuid: "someone-else" } },
+      "IdentityMismatch",
+    ],
+    [
+      "Broadcaster email",
+      { broadcaster: { ...claim.broadcaster, email: "someone@else.example" } },
+      "IdentityMismatch",
+    ],
   ]
 
-  it.effect.each(mismatches)("refuses a claim with a different %s", ([, mismatch]) =>
+  it.effect.each(mismatches)("refuses a claim with a different %s", ([, mismatch, reason]) =>
     withStore((store) =>
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
-        assert.isFalse(yield* store.consumeAttempt({ ...claim, ...mismatch }))
-        assert.isTrue(yield* store.consumeAttempt(claim))
+        yield* expectRejection(store, { ...claim, ...mismatch }, reason)
+        yield* store.consumeAttempt(claim)
+      }),
+    ),
+  )
+
+  it.effect("reports a replay as a mismatch even under another identity", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.createAttempt(pendingAttempt)
+        yield* store.consumeAttempt(claim)
+        yield* expectRejection(
+          store,
+          { ...claim, broadcaster: { ...claim.broadcaster, userUuid: "someone-else" } },
+          "Mismatch",
+        )
+      }),
+    ),
+  )
+
+  it.effect("reports an identity mismatch before an expiry", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.createAttempt(pendingAttempt)
+        yield* TestClock.setTime(DateTime.toEpochMillis(pendingAttempt.expiresAt))
+        yield* expectRejection(
+          store,
+          { ...claim, broadcaster: { ...claim.broadcaster, userUuid: "someone-else" } },
+          "IdentityMismatch",
+        )
       }),
     ),
   )

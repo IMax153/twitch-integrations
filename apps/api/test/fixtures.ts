@@ -37,11 +37,14 @@ export const pendingAttempt: AuthorizationAttempt = {
 
 /** A Provider granting a full set of tokens to the account "Max". */
 export const grantedScenario: ProviderScenario = {
-  grant: {
-    accessToken: "granted-access-token",
-    refreshToken: Option.some("granted-refresh-token"),
-    expiresIn: 3600,
-    scopes: Option.some(["scope-a", "scope-b"]),
+  token: {
+    _tag: "Grant",
+    grant: {
+      accessToken: "granted-access-token",
+      refreshToken: Option.some("granted-refresh-token"),
+      expiresIn: 3600,
+      scopes: Option.some(["scope-a", "scope-b"]),
+    },
   },
   account: { id: "account-1", displayName: "Max" },
 }

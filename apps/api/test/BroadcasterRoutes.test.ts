@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
+import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as DateTime from "effect/DateTime"
@@ -12,6 +13,7 @@ import {
   broadcasterIdentity,
   type SendOptions,
 } from "./BroadcasterHarness.ts"
+import type { TokenEndpoint } from "./FakeProviders.ts"
 import { authorizedConnection, broadcaster, grantedScenario } from "./fixtures.ts"
 
 const asBroadcaster = { identity: broadcasterIdentity }
@@ -49,8 +51,113 @@ const world = Effect.map(makeBroadcasterWorld, (world) => {
     assert.match(response.headers.get("content-type") ?? "", /^application\/json/)
     return yield* decodeConnections(yield* Effect.promise(() => response.json()))
   })
-  return { ...world, send, get, authorize, startAttempt, callback, getConnections }
+  return {
+    ...world,
+    sendRequest: world.send,
+    send,
+    get,
+    authorize,
+    startAttempt,
+    callback,
+    getConnections,
+  }
 })
+
+type World = Effect.Success<typeof world>
+
+/** A way a Spotify callback can fail, and the result the Broadcaster Page is sent. */
+interface CallbackFailure {
+  readonly name: string
+  readonly result: BroadcasterResult
+  readonly callback: (world: World) => Effect.Effect<Response>
+}
+
+const otherIdentity = { identity: { user_uuid: "not-the-broadcaster", email: "else@example.com" } }
+
+/** The token endpoint failing the exchange in every way the Provider can. */
+const exchangeFaults: ReadonlyArray<[string, TokenEndpoint]> = [
+  ["a client error", { _tag: "Status", status: 400 }],
+  ["a rate limit", { _tag: "Status", status: 429 }],
+  ["a server error", { _tag: "Status", status: 500 }],
+  ["a network failure", { _tag: "Unreachable" }],
+  ["a malformed token response", { _tag: "Malformed" }],
+]
+
+const callbackFailures: ReadonlyArray<CallbackFailure> = [
+  {
+    name: "consent is denied",
+    result: "denied",
+    callback: ({ startAttempt, callback }) =>
+      Effect.flatMap(startAttempt("spotify"), ({ state }) =>
+        callback("spotify", { error: "access_denied", state }),
+      ),
+  },
+  {
+    name: "the code is missing",
+    result: "missing-code",
+    callback: ({ startAttempt, callback }) =>
+      Effect.flatMap(startAttempt("spotify"), ({ state }) => callback("spotify", { state })),
+  },
+  {
+    name: "the Attempt expired",
+    result: "attempt-expired",
+    callback: ({ startAttempt, callback }) =>
+      Effect.gen(function* () {
+        const { state } = yield* startAttempt("spotify")
+        yield* TestClock.adjust("10 minutes")
+        return yield* callback("spotify", { code: "code-1", state })
+      }),
+  },
+  {
+    name: "the callback is replayed",
+    result: "attempt-mismatch",
+    callback: ({ startAttempt, callback }) =>
+      Effect.gen(function* () {
+        const { state } = yield* startAttempt("spotify")
+        yield* callback("spotify", { error: "access_denied", state })
+        return yield* callback("spotify", { code: "code-1", state })
+      }),
+  },
+  {
+    name: "another Access identity answers",
+    result: "identity-mismatch",
+    callback: ({ startAttempt, callback }) =>
+      Effect.flatMap(startAttempt("spotify"), ({ state }) =>
+        callback("spotify", { code: "code-1", state }, otherIdentity),
+      ),
+  },
+  {
+    name: "the state belongs to another Provider",
+    result: "attempt-mismatch",
+    callback: ({ startAttempt, callback }) =>
+      Effect.flatMap(startAttempt("twitch"), ({ state }) =>
+        callback("spotify", { code: "code-1", state }),
+      ),
+  },
+  {
+    name: "the callback arrives at another origin",
+    result: "attempt-mismatch",
+    callback: ({ startAttempt, sendRequest }) =>
+      Effect.flatMap(startAttempt("spotify"), ({ state }) =>
+        sendRequest(
+          new Request(
+            `https://elsewhere.example/oauth/spotify/callback?${new URLSearchParams({ code: "code-1", state })}`,
+          ),
+          asBroadcaster,
+        ),
+      ),
+  },
+  ...exchangeFaults.map(([fault, token]): CallbackFailure => ({
+    name: `the exchange meets ${fault}`,
+    result: "exchange-failed",
+    callback: ({ providers, startAttempt, callback }) =>
+      Effect.gen(function* () {
+        yield* providers.set("spotify", { ...grantedScenario, token })
+        const { state } = yield* startAttempt("spotify")
+        return yield* callback("spotify", { code: "code-1", state })
+      }),
+  })),
+]
 
 describe("broadcaster routes", () => {
   it.effect.each(["/setup", "/setup/api/connections"])(
@@ -238,6 +345,41 @@ describe("broadcaster routes", () => {
       }),
     )
 
+    it.effect("reports denied consent and consumes the Attempt", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
+        const denied = yield* callback("spotify", { error: "access_denied", state })
+        assert.strictEqual(denied.status, 303)
+        assert.strictEqual(
+          denied.headers.get("location"),
+          "https://worker.example/setup?result=denied",
+        )
+        assert.lengthOf(yield* providers.received, 0)
+        // The Attempt is gone: a later callback that does carry a code cannot use it.
+        const retry = yield* callback("spotify", { code: "code-1", state })
+        assert.strictEqual(
+          retry.headers.get("location"),
+          "https://worker.example/setup?result=attempt-mismatch",
+        )
+      }),
+    )
+
+    it.effect("reports a missing code without touching the Attempt", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
+        const response = yield* callback("spotify", { state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=missing-code",
+        )
+        assert.lengthOf(yield* providers.received, 0)
+      }),
+    )
+
     it.effect("records a one-use Attempt: a replayed callback is refused", () =>
       Effect.gen(function* () {
         const { providers, startAttempt, callback } = yield* world
@@ -265,7 +407,7 @@ describe("broadcaster routes", () => {
         )
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=attempt-mismatch",
+          "https://worker.example/setup?result=identity-mismatch",
         )
         assert.lengthOf(yield* providers.received, 0)
         assert.strictEqual((yield* getConnections)[0]?.status, "Not Configured")
@@ -281,9 +423,37 @@ describe("broadcaster routes", () => {
         const response = yield* callback("spotify", { code: "code-1", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=attempt-mismatch",
+          "https://worker.example/setup?result=attempt-expired",
         )
         assert.lengthOf(yield* providers.received, 0)
+      }),
+    )
+
+    it.effect.each(callbackFailures)(
+      "redirects with $result when $name and leaves the previous Connection untouched",
+      (failure) =>
+        Effect.gen(function* () {
+          const current = yield* world
+          yield* current.providers.set("spotify", grantedScenario)
+          yield* current.stores.spotify.writeConnection(authorizedConnection)
+          const response = yield* failure.callback(current)
+          assert.strictEqual(response.status, 303)
+          // The redirect stays on whichever origin the callback arrived at.
+          const location = new URL(response.headers.get("location") ?? "")
+          assert.strictEqual(location.pathname, "/setup")
+          assert.strictEqual(location.searchParams.get("result"), failure.result)
+          assert.deepStrictEqual(
+            yield* current.stores.spotify.readConnection,
+            Option.some(authorizedConnection),
+          )
+        }),
+    )
+
+    it.effect("answers 404 for a callback from an unknown Provider", () =>
+      Effect.gen(function* () {
+        const { callback } = yield* world
+        const response = yield* callback("soundcloud", { code: "code-1", state: "state-1" })
+        assert.strictEqual(response.status, 404)
       }),
     )
 
@@ -294,11 +464,14 @@ describe("broadcaster routes", () => {
         const first = yield* startAttempt("spotify")
         yield* callback("spotify", { code: "code-1", state: first.state })
         yield* providers.set("spotify", {
-          grant: {
-            accessToken: "second-access-token",
-            refreshToken: Option.some("second-refresh-token"),
-            expiresIn: 60,
-            scopes: Option.some(["scope-c"]),
+          token: {
+            _tag: "Grant",
+            grant: {
+              accessToken: "second-access-token",
+              refreshToken: Option.some("second-refresh-token"),
+              expiresIn: 60,
+              scopes: Option.some(["scope-c"]),
+            },
           },
           account: { id: "account-2", displayName: "Other" },
         })

@@ -3,19 +3,17 @@ import type { BroadcasterIdentity } from "@twitch-integrations/domain/Broadcaste
 import type { Connection } from "@twitch-integrations/domain/Connection"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
-import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
-import { type AttemptClaim, ConnectionStore } from "./ConnectionStore.ts"
+import {
+  type AttemptClaim,
+  type AuthorizationAttemptRejected,
+  ConnectionStore,
+} from "./ConnectionStore.ts"
 import { Provider, type ProviderRequestFailed } from "./Provider.ts"
-
-/** The callback presented a claim no pending, unexpired Attempt matches. */
-export class AuthorizationAttemptRejected extends Data.TaggedError(
-  "AuthorizationAttemptRejected",
-)<{}> {}
 
 export interface AuthorizationFlowService {
   /**
@@ -35,6 +33,12 @@ export interface AuthorizationFlowService {
     claim: AttemptClaim,
     code: string,
   ) => Effect.Effect<Connection, AuthorizationAttemptRejected | ProviderRequestFailed>
+  /**
+   * Ends the Attempt the claim names without a code, as when the Broadcaster
+   * denied consent at the Provider. The Attempt is consumed so its state
+   * value cannot be presented again; the Connection is left as it was.
+   */
+  readonly abandon: (claim: AttemptClaim) => Effect.Effect<void, AuthorizationAttemptRejected>
 }
 
 /** How long the Broadcaster has to finish consent before the Attempt is stale. */
@@ -80,14 +84,12 @@ const make = Effect.gen(function* () {
       }),
     complete: (claim, code) =>
       Effect.gen(function* () {
-        const consumed = yield* store.consumeAttempt(claim)
-        if (!consumed) {
-          return yield* new AuthorizationAttemptRejected()
-        }
+        yield* store.consumeAttempt(claim)
         const tokens = yield* provider.exchangeCode(code, claim.callbackUri)
         const connectedAccount = yield* provider.fetchConnectedAccount(tokens.accessToken)
         return yield* lifecycle.accept(tokens, connectedAccount)
       }),
+    abandon: store.consumeAttempt,
   })
 })
 

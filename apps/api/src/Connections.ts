@@ -23,6 +23,11 @@ export interface ConnectionsService {
     claim: AttemptClaim,
     code: string,
   ) => Effect.Effect<BroadcasterResult>
+  /** Ends an Authorization Attempt the Provider answered with an error, and returns the outcome. */
+  readonly abandonAuthorization: (
+    provider: ProviderName,
+    claim: AttemptClaim,
+  ) => Effect.Effect<BroadcasterResult>
 }
 
 /**
@@ -37,6 +42,7 @@ const fromObjects = (
     objectFor(provider).startAuthorization(broadcaster, callbackUri),
   completeAuthorization: (provider, claim, code) =>
     objectFor(provider).completeAuthorization(claim, code),
+  abandonAuthorization: (provider, claim) => objectFor(provider).abandonAuthorization(claim),
 })
 
 const make = Effect.map(ConnectionObject, (objects) =>

@@ -18,9 +18,19 @@ export interface TokenGrant {
   readonly scopes: Option.Option<ReadonlyArray<string>>
 }
 
+/** How a fake Provider's token endpoint answers: with a grant, or by failing in one of the ways a real one can. */
+export type TokenEndpoint =
+  | { readonly _tag: "Grant"; readonly grant: TokenGrant }
+  /** An error status with a JSON error body, as for a bad code, a rate limit, or an outage. */
+  | { readonly _tag: "Status"; readonly status: number }
+  /** The request never gets an answer. */
+  | { readonly _tag: "Unreachable" }
+  /** A 200 whose body is not a token response. */
+  | { readonly _tag: "Malformed" }
+
 /** How a fake Provider answers the next exchange and identity lookup. */
 export interface ProviderScenario {
-  readonly grant: TokenGrant
+  readonly token: TokenEndpoint
   readonly account: ConnectedAccount
 }
 
@@ -48,10 +58,8 @@ const expectedCredentials: Record<ProviderName, { clientId: string; clientSecret
 
 type Scenarios = Partial<Record<ProviderName, ProviderScenario>>
 
-interface FakeResponse {
-  readonly status: number
-  readonly body: unknown
-}
+/** A JSON answer, or none when the fake plays a Provider that cannot be reached. */
+type FakeResponse = { readonly status: number; readonly body: unknown } | "unreachable"
 
 const respond = (status: number, body: unknown): FakeResponse => ({ status, body })
 
@@ -71,7 +79,7 @@ interface FakeProvider {
   readonly scope: (scopes: ReadonlyArray<string>) => unknown
   /** The `Authorization` scheme the identity endpoint expects. */
   readonly identityScheme: string
-  readonly identityBody: (scenario: ProviderScenario) => unknown
+  readonly identityBody: (scenario: ProviderScenario, grant: TokenGrant) => unknown
 }
 
 const basicAuthorization = (clientId: string, clientSecret: string) =>
@@ -101,7 +109,7 @@ const fakeProviders: Record<ProviderName, FakeProvider> = {
     tokenType: "bearer",
     scope: (scopes) => scopes,
     identityScheme: "OAuth",
-    identityBody: ({ account, grant }) => ({
+    identityBody: ({ account }, grant) => ({
       client_id: expectedCredentials.twitch.clientId,
       login: account.displayName,
       user_id: account.id,
@@ -123,14 +131,23 @@ const tokenResponse = (
   if (scenario === undefined) {
     return respond(500, { error: "no scenario set" })
   }
-  const { grant } = scenario
-  return respond(200, {
-    access_token: grant.accessToken,
-    token_type: fake.tokenType,
-    expires_in: grant.expiresIn,
-    refresh_token: Option.getOrUndefined(grant.refreshToken),
-    scope: Option.map(grant.scopes, fake.scope).pipe(Option.getOrUndefined),
-  })
+  const { token } = scenario
+  switch (token._tag) {
+    case "Grant":
+      return respond(200, {
+        access_token: token.grant.accessToken,
+        token_type: fake.tokenType,
+        expires_in: token.grant.expiresIn,
+        refresh_token: Option.getOrUndefined(token.grant.refreshToken),
+        scope: Option.map(token.grant.scopes, fake.scope).pipe(Option.getOrUndefined),
+      })
+    case "Status":
+      return respond(token.status, { error: "invalid_grant" })
+    case "Unreachable":
+      return "unreachable"
+    case "Malformed":
+      return respond(200, { unexpected: true })
+  }
 }
 
 /** The identity endpoint: requires the granted access token in the Provider's own header style. */
@@ -142,12 +159,15 @@ const identityResponse = (
   if (scenario === undefined) {
     return respond(500, { error: "no scenario set" })
   }
+  // A token endpoint that granted nothing has no access token to recognise.
+  const grant = scenario.token._tag === "Grant" ? scenario.token.grant : undefined
   if (
-    received.headers["authorization"] !== `${fake.identityScheme} ${scenario.grant.accessToken}`
+    grant === undefined ||
+    received.headers["authorization"] !== `${fake.identityScheme} ${grant.accessToken}`
   ) {
     return respond(401, { error: "invalid token" })
   }
-  return respond(200, fake.identityBody(scenario))
+  return respond(200, fake.identityBody(scenario, grant))
 }
 
 interface Endpoint {
@@ -202,8 +222,19 @@ const make = Effect.gen(function* () {
       }
       yield* Ref.update(log, (entries) => [...entries, received])
       const scenario = (yield* Ref.get(scenarios))[endpoint.provider]
-      const { status, body } = endpoint.handle(scenario, received)
-      return HttpClientResponse.fromWeb(request, Response.json(body, { status }))
+      const answer = endpoint.handle(scenario, received)
+      if (answer === "unreachable") {
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({
+            request,
+            cause: new Error(`${url.host} is unreachable`),
+          }),
+        })
+      }
+      return HttpClientResponse.fromWeb(
+        request,
+        Response.json(answer.body, { status: answer.status }),
+      )
     }),
   )
 
