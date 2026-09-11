@@ -1,7 +1,7 @@
 import { foldkit } from "@foldkit/vite-plugin"
 import { defineConfig } from "vite-plus"
 
-const localWorker = "http://localhost:1337"
+const localWorker = "http://127.0.0.1:1337"
 
 export default defineConfig({
   base: "/setup/",

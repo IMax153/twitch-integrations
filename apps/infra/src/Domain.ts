@@ -1,6 +1,14 @@
 /** The Cloudflare zone the deployment lives in. Registered through Cloudflare Registrar, so it already exists. */
 export const zoneName = "minbadblue.com"
 
+/**
+ * The host both Workers bind under `alchemy dev`. Spotify accepts a plain
+ * HTTP callback only on a loopback IP literal, never `localhost`, so the
+ * page is opened at this address and the Workers listen on it explicitly
+ * rather than on whatever `localhost` resolves to.
+ */
+export const devHost = "127.0.0.1"
+
 /** The one hostname both Workers share; paths decide which Worker answers. */
 export const broadcasterHostname = "twitch-integrations.minbadblue.com"
 

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "effect-tsgo patch --oxlint"
+    "prepare": "effect-tsgo patch --oxlint",
+    "dev": "alchemy dev",
+    "deploy": "alchemy deploy --stage production"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",

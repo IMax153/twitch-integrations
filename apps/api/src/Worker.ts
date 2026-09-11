@@ -1,12 +1,21 @@
 import { BroadcasterAccess, devBroadcasterAccess } from "@twitch-integrations/infra/Access"
-import { broadcasterHostname, broadcasterRoute, zoneName } from "@twitch-integrations/infra/Domain"
+import {
+  broadcasterHostname,
+  broadcasterRoute,
+  devHost,
+  zoneName,
+} from "@twitch-integrations/infra/Domain"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import { Connections } from "./Connections.ts"
 import { BroadcasterHttp } from "./BroadcasterRoutes.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 
-/** The port the API Worker listens on under `alchemy dev`; the web dev server proxies to it. */
+/**
+ * The port the API Worker listens on under `alchemy dev`; the web dev server
+ * proxies to it. The port is strict so a collision fails at startup rather
+ * than silently moving the Worker away from the proxy target.
+ */
 const devPort = 1337
 
 /**
@@ -28,7 +37,7 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
       routes: [broadcasterRoute("/setup/api*")],
       access,
       workersDev: false,
-      dev: { port: devPort, access: devBroadcasterAccess },
+      dev: { host: devHost, port: devPort, strictPort: true, access: devBroadcasterAccess },
     }
   }),
   Effect.gen(function* () {
