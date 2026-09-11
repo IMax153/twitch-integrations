@@ -5,15 +5,24 @@ import * as Layer from "effect/Layer"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as TestClock from "effect/testing/TestClock"
-import { ConnectionStore } from "../src/ConnectionStore.ts"
+import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
+import { type AttemptClaim, ConnectionStore } from "../src/ConnectionStore.ts"
 import { authorizedConnection, pendingAttempt } from "./fixtures.ts"
 
-const claim = {
-  state: pendingAttempt.state,
-  provider: pendingAttempt.provider,
-  callbackUri: pendingAttempt.callbackUri,
-  operator: pendingAttempt.operator,
-}
+/** The claim a callback for this Attempt would present. */
+const claimOf = ({
+  state,
+  provider,
+  callbackUri,
+  operator,
+}: AuthorizationAttempt): AttemptClaim => ({
+  state,
+  provider,
+  callbackUri,
+  operator,
+})
+
+const claim = claimOf(pendingAttempt)
 
 /** A fresh in-memory database per test, running the real store over it. */
 const storeLayer = ConnectionStore.layer.pipe(

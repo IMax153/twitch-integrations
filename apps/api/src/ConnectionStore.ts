@@ -52,8 +52,15 @@ export class ConnectionStore extends Context.Service<ConnectionStore, Connection
 }
 
 /** The Connection is one Schema-validated JSON document in a single-row table. */
-const ConnectionDocument = Schema.fromJsonString(Connection)
-const decodeDocument = Schema.decodeUnknownEffect(ConnectionDocument)
+const ConnectionDocument = Schema.fromJsonString(Connection).annotate({
+  identifier: "ConnectionDocument",
+})
+// NOTE: a parse failure is reported without the parse error itself, which
+// would otherwise print the stored document, tokens included, into the logs.
+const decodeDocument = (document: string) =>
+  Schema.decodeEffect(ConnectionDocument)(document).pipe(
+    Effect.catch(() => Effect.die("The stored Connection document no longer decodes")),
+  )
 const encodeDocument = Schema.encodeEffect(ConnectionDocument)
 
 interface ConnectionRow {

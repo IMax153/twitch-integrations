@@ -7,7 +7,9 @@ import { authorizedConnection } from "./fixtures.ts"
 
 const asOperator = { identity: operatorIdentity }
 
-const decodeConnections = Schema.decodeUnknownEffect(Schema.Array(ConnectionSummary))
+const decodeConnections = Schema.decodeUnknownEffect(
+  Schema.Array(ConnectionSummary).annotate({ identifier: "Connections" }),
+)
 
 const world = Effect.map(makeOperatorWorld, (world) => {
   const send = (method: "GET" | "POST", path: string, options?: SendOptions) =>

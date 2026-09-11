@@ -18,6 +18,7 @@ import { makeConnectionObject } from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
 import { OperatorHttp } from "../src/OperatorRoutes.ts"
+import { operator } from "./fixtures.ts"
 
 type ExecutionContext = Parameters<typeof fromExecutionContext>[0]
 type OperatorHandler = Effect.Success<typeof OperatorHttp>
@@ -35,9 +36,10 @@ const sendThroughBridge = makeRequestEffect as unknown as (
   Exclude<Effect.Services<OperatorHandler>, HttpServerRequest.HttpServerRequest>
 >
 
+/** The Operator's identity in the shape Cloudflare Access reports it. */
 export const operatorIdentity: WorkerAccessIdentity = {
-  email: "operator@example.com",
-  user_uuid: "8d5c1a1e-4b7e-4d2b-9c1a-2f3e4d5c6b7a",
+  email: operator.email,
+  user_uuid: operator.userUuid,
 }
 
 const fakeExecutionContext = (): ExecutionContext =>
@@ -65,17 +67,18 @@ const inMemoryStore = Layer.build(
   ConnectionStore.layer.pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" }))),
 ).pipe(Effect.map(Context.get(ConnectionStore)))
 
+/** Runs `make` once per Provider and keys the results by Provider name. */
+const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A, E, R>) =>
+  Effect.forEach(ProviderName.literals, (provider) =>
+    Effect.map(make(provider), (value) => [provider, value] as const),
+  ).pipe(Effect.map(Record.fromEntries))
+
 export const makeOperatorWorld: Effect.Effect<OperatorWorld, never, Scope.Scope> = Effect.gen(
   function* () {
-    const stores = yield* Effect.forEach(ProviderName.literals, (provider) =>
-      Effect.map(inMemoryStore, (store) => [provider, store] as const),
-    ).pipe(Effect.map(Record.fromEntries))
-    const objects = yield* Effect.forEach(ProviderName.literals, (provider) =>
-      makeConnectionObject(provider).pipe(
-        Effect.provideService(ConnectionStore, stores[provider]),
-        Effect.map((object) => [provider, object] as const),
-      ),
-    ).pipe(Effect.map(Record.fromEntries))
+    const stores = yield* perProvider(() => inMemoryStore)
+    const objects = yield* perProvider((provider) =>
+      makeConnectionObject(provider).pipe(Effect.provideService(ConnectionStore, stores[provider])),
+    )
     const connections = Layer.succeed(Connections, {
       describe: (provider) => objects[provider].describe(),
     })
