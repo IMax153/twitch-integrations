@@ -10,10 +10,12 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import { ChannelLock } from "./ChannelLock.ts"
 import { ChannelStore } from "./ChannelStore.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
 import { type EventSubscriptionRequest, Helix, type HelixRequestFailed } from "./Helix.ts"
+import { logFailure } from "@twitch-integrations/infra/Failure"
 import type { ProviderRequestFailed } from "./Provider.ts"
 import { RewardPause } from "./RewardPause.ts"
 import { TwitchAccess, type TwitchAccessGrant } from "./TwitchAccess.ts"
@@ -63,6 +65,13 @@ const eventSubscriptionRequests = (
   },
 ]
 
+/**
+ * Whether Twitch answered a Redemption update with its "not found or not
+ * UNFULFILLED" refusal: the Redemption has been ended some other way.
+ */
+const noLongerUnfulfilled = (failure: HelixRequestFailed) =>
+  failure.reason._tag === "Status" && failure.reason.status === 404
+
 /** The ID of the reward with the title among those this client ID may manage, if there is one. */
 const manageableIdWithTitle = (rewards: ReadonlyArray<Reward>, title: string) =>
   Option.map(
@@ -83,29 +92,29 @@ const make = Effect.gen(function* () {
   /**
    * Cancels one Redemption held while Twitch could not be reached, which
    * refunds the viewer, and forgets it. One Twitch reports is no longer
-   * unfulfilled has been ended some other way and is forgotten too.
+   * unfulfilled has been ended some other way and is forgotten too. Any
+   * other refusal is logged and the Redemption stays held for the next
+   * reconcile, so one Redemption never keeps the rest of the channel from
+   * being brought in line.
    */
   const settle = Effect.fn("ChannelReconcile.settle")(function* (
     { token, account }: TwitchAccessGrant,
     { redemption }: HeldRedemption,
   ) {
-    yield* helix
-      .updateRedemptionStatus(token, account, redemption.rewardId, redemption.id, "CANCELED")
-      .pipe(
-        Effect.flatMap(() =>
-          Effect.logInfo(
-            `Cancelled held Redemption ${redemption.id} from ${redemption.viewerName}`,
-          ),
-        ),
-        Effect.catchIf(
-          (failure) => failure.reason._tag === "Status" && failure.reason.status === 404,
-          () =>
-            Effect.logInfo(
-              `Dropped held Redemption ${redemption.id} from ${redemption.viewerName}: Twitch reports it no longer unfulfilled`,
-            ),
-        ),
-      )
-    yield* store.releaseRedemption(redemption.id)
+    const cancelled = yield* Effect.result(
+      helix.updateRedemptionStatus(token, account, redemption.rewardId, redemption.id, "CANCELED"),
+    )
+    const who = `held Redemption ${redemption.id} from ${redemption.viewerName}`
+    if (Result.isSuccess(cancelled)) {
+      yield* Effect.logInfo(`Cancelled ${who}`)
+    } else if (noLongerUnfulfilled(cancelled.failure)) {
+      yield* Effect.logInfo(`Dropped ${who}: Twitch reports it no longer unfulfilled`)
+    } else {
+      yield* logFailure(cancelled.failure)
+      yield* Effect.logWarning(`Kept ${who} for the next reconcile: Twitch refused the cancel`)
+      return
+    }
+    yield* store.releaseHeldRedemption(redemption.id)
   })
 
   /** Cancels every held Redemption in the order they were held, before anything else on the channel is touched. */

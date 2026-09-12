@@ -23,6 +23,7 @@ import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
 import {
   authorizedConnection,
+  heldRedemptionOf,
   manageableSongRequest,
   neverGonnaId,
   redemptionOf,
@@ -787,11 +788,6 @@ const worldWithTwitchDisconnected = Effect.fnUntraced(function* () {
   return world
 })
 
-const heldOf = (id: string, input: string) => ({
-  redemption: redemptionOf("reward-1", input, id),
-  reason: "TwitchUnavailable" as const,
-})
-
 describe("ChannelObject.receive of a Song Request while Twitch is disconnected", () => {
   it.effect("holds each Redemption it cannot cancel and goes on with the next", () =>
     Effect.gen(function* () {
@@ -806,8 +802,8 @@ describe("ChannelObject.receive of a Song Request while Twitch is disconnected",
       yield* world.settled
       assert.deepStrictEqual(yield* world.providers.received, [])
       assert.deepStrictEqual(yield* world.channelStore.readHeldRedemptions, [
-        heldOf("redemption-1", "not a link"),
-        heldOf("redemption-2", "still not"),
+        heldRedemptionOf("redemption-1", "not a link"),
+        heldRedemptionOf("redemption-2", "still not"),
       ])
       // Both left the Processing Queue: a restart processes nothing again.
       yield* world.rebuildChannel
@@ -883,6 +879,33 @@ describe("ChannelObject.reconcile with a held Redemption Twitch has already ende
       )
       yield* world.channel.reconcile()
       assert.lengthOf(yield* redemptionUpdates(world), 2)
+    }).pipe(Effect.scoped),
+  )
+})
+
+describe("ChannelObject.reconcile with a held Redemption Twitch refuses to cancel", () => {
+  it.effect("keeps it held and still brings the rest of the channel in line", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithHeldRedemptions()
+      yield* world.providers.twitchHelix.set(
+        helixScenario({
+          manageableRewards: [manageableSongRequest],
+          redemptionUpdateRefusals: Infinity,
+        }),
+      )
+      yield* world.channel.reconcile()
+      assert.lengthOf(yield* redemptionUpdates(world), 2)
+      assert.deepStrictEqual(yield* world.channelStore.readHeldRedemptions, [
+        heldRedemptionOf("redemption-1", "not a link"),
+        heldRedemptionOf("redemption-2", "still not"),
+      ])
+      assert.include(
+        lines(yield* rewardRequests(world)),
+        `PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`,
+      )
+      // Still held: the next reconcile tries again.
+      yield* world.channel.reconcile()
+      assert.lengthOf(yield* redemptionUpdates(world), 4)
     }).pipe(Effect.scoped),
   )
 })

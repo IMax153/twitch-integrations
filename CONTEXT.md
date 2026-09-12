@@ -68,6 +68,10 @@ _Avoid_: Channel point, custom reward, incentive
 One viewer's spend of channel points on a Reward, arriving with the viewer's input. The deployment ends every Redemption by fulfilling it or cancelling it, and cancelling refunds the points.
 _Avoid_: Event, request, claim
 
+**Held Redemption**:
+A Redemption the Channel should have cancelled while the Twitch Connection had no token to give, kept with the reason it is there until the next reconcile cancels it. The only Redemption state stored after processing.
+_Avoid_: Pending refund, retry, deferred
+
 **Processing Queue**:
 The Channel's stored, arrival-ordered list of Redemptions of the Reward it has not yet ended. A Redemption is on it from the moment the receiver is acknowledged until the Channel has fulfilled or cancelled it, one at a time. Distinct from the Spotify queue a Song Request adds a track to.
 _Avoid_: Backlog, queue (alone), work queue

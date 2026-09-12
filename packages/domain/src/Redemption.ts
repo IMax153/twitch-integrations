@@ -15,7 +15,11 @@ export const Redemption = Schema.Struct({
 }).annotate({ identifier: "Redemption" })
 export type Redemption = typeof Redemption.Type
 
-/** Why a Redemption is held rather than ended: the Twitch Connection could not hand out a token to cancel it with. */
+/**
+ * Why a Redemption is held rather than ended. The spec names one reason,
+ * the Twitch Connection having no token to cancel it with, and stores it
+ * with the Redemption so a held row says why it is there.
+ */
 export const HoldReason = Schema.Literals(["TwitchUnavailable"]).annotate({
   identifier: "HoldReason",
 })

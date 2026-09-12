@@ -43,7 +43,7 @@ export interface ChannelStoreService {
   /** Every held Redemption, in the order they were held. */
   readonly readHeldRedemptions: Effect.Effect<ReadonlyArray<HeldRedemption>>
   /** Forgets the held Redemption with the ID once it has been settled. */
-  readonly releaseRedemption: (redemptionId: string) => Effect.Effect<void>
+  readonly releaseHeldRedemption: (redemptionId: string) => Effect.Effect<void>
 }
 
 /**
@@ -253,7 +253,7 @@ const make = Effect.gen(function* () {
       return yield* Effect.forEach(rows, (row) => decodeHeldRedemption(row.document))
     }).pipe(Effect.orDie),
 
-    releaseRedemption: (redemptionId) =>
+    releaseHeldRedemption: (redemptionId) =>
       sql`DELETE FROM held_redemption WHERE redemption_id = ${redemptionId}`.pipe(
         Effect.asVoid,
         Effect.orDie,

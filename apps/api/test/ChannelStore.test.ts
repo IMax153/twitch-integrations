@@ -4,7 +4,12 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
-import { redemptionOf, songRequestReward, storedSubscriptions } from "./fixtures.ts"
+import {
+  heldRedemptionOf,
+  redemptionOf,
+  songRequestReward,
+  storedSubscriptions,
+} from "./fixtures.ts"
 
 /** A fresh in-memory database per test, running the real store over it. */
 const storeLayer = ChannelStore.layer.pipe(
@@ -105,10 +110,7 @@ describe("ChannelStore processing queue", () => {
 })
 
 describe("ChannelStore held Redemptions", () => {
-  const held = (id: string) => ({
-    redemption: redemptionOf("reward-1", `spotify:track:${id}`, id),
-    reason: "TwitchUnavailable" as const,
-  })
+  const held = (id: string) => heldRedemptionOf(id, `spotify:track:${id}`)
 
   it.effect("hands held Redemptions back in arrival order and forgets each once released", () =>
     withStore((store) =>
@@ -120,9 +122,9 @@ describe("ChannelStore held Redemptions", () => {
           held("redemption-2"),
           held("redemption-1"),
         ])
-        yield* store.releaseRedemption("redemption-2")
+        yield* store.releaseHeldRedemption("redemption-2")
         assert.deepStrictEqual(yield* store.readHeldRedemptions, [held("redemption-1")])
-        yield* store.releaseRedemption("redemption-1")
+        yield* store.releaseHeldRedemption("redemption-1")
         assert.deepStrictEqual(yield* store.readHeldRedemptions, [])
       }),
     ),

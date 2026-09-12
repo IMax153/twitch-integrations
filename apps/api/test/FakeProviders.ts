@@ -423,7 +423,7 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
             : respond(200, {
                 data: [
                   {
-                    id: query(received).get("id"),
+                    id,
                     broadcaster_id: query(received).get("broadcaster_id"),
                     reward: { id: query(received).get("reward_id") },
                     status: asRecord(received.json)["status"],
