@@ -148,7 +148,7 @@ export interface ProviderService extends ProviderDescription {
 /** Spotify's current user profile; a display name may be unset on the account. */
 const SpotifyProfile = Schema.Struct({
   id: Schema.String,
-  display_name: Schema.optional(Schema.NullOr(Schema.String)),
+  display_name: Schema.String.pipe(Schema.NullOr, Schema.optional),
 }).annotate({ identifier: "SpotifyProfile" })
 
 /** Twitch's token validation, which reports the token's owner. */

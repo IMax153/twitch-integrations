@@ -56,6 +56,8 @@ export const FetchConnections = Command.define("FetchConnections", {
     Effect.orElseSucceed(() =>
       Message.FailedFetchConnections({ error: "The Connections could not be loaded." }),
     ),
+    // The page's command is its entry point.
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide
     Effect.provide(Http.layer),
   ),
 })

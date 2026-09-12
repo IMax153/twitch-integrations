@@ -103,7 +103,7 @@ describe("ConnectionStore", () => {
     withStore((store) =>
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
-        yield* TestClock.setTime(DateTime.toEpochMillis(pendingAttempt.expiresAt))
+        yield* pendingAttempt.expiresAt.pipe(DateTime.toEpochMillis, TestClock.setTime)
         yield* expectRejection(store, claim, "Expired")
       }),
     ),
@@ -176,7 +176,7 @@ describe("ConnectionStore", () => {
     withStore((store) =>
       Effect.gen(function* () {
         yield* store.createAttempt(pendingAttempt)
-        yield* TestClock.setTime(DateTime.toEpochMillis(pendingAttempt.expiresAt))
+        yield* pendingAttempt.expiresAt.pipe(DateTime.toEpochMillis, TestClock.setTime)
         yield* expectRejection(
           store,
           { ...claim, broadcaster: { ...claim.broadcaster, userUuid: "someone-else" } },

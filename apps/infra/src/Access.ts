@@ -18,7 +18,7 @@ import * as Redacted from "effect/Redacted"
 export class BroadcasterAccess extends Context.Service<
   BroadcasterAccess,
   Cloudflare.Access.Application | undefined
->()("@twitch-integrations/infra/BroadcasterAccess") {}
+>()("@twitch-integrations/infra/Access/BroadcasterAccess") {}
 
 /**
  * The `access` prop enrolling a Worker in the application: nothing under
@@ -28,7 +28,7 @@ export class BroadcasterAccess extends Context.Service<
  */
 export const enrollment: Effect.Effect<{ readonly access: Cloudflare.Access.Application } | {}> =
   Effect.gen(function* () {
-    if (globalThis.__ALCHEMY_RUNTIME__) {
+    if (globalThis.__ALCHEMY_RUNTIME__ === true) {
       return {}
     }
     const access = yield* Effect.serviceOption(BroadcasterAccess)

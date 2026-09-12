@@ -22,7 +22,7 @@ import {
   strugglingConnection,
 } from "./fixtures.ts"
 
-const at = (iso: string) => TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(iso)))
+const at = (iso: string) => DateTime.makeUnsafe(iso).pipe(DateTime.toEpochMillis, TestClock.setTime)
 
 const time = (iso: string) => DateTime.makeUnsafe(iso)
 
@@ -105,7 +105,7 @@ describe("ConnectionObject.getAccessToken", () => {
       const world = yield* makeBroadcasterWorld
       yield* at("2026-09-11T12:00:00Z")
       const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "spotify" }))
+      assert.deepStrictEqual(failure, ConnectionNotConfigured.make({ provider: "spotify" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
     }).pipe(Effect.scoped),
   )
@@ -119,7 +119,7 @@ describe("ConnectionObject.getAccessToken", () => {
         status: "Reauthorization Required",
       })
       const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(failure, new ReauthorizationRequired({ provider: "spotify" }))
+      assert.deepStrictEqual(failure, ReauthorizationRequired.make({ provider: "spotify" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
     }).pipe(Effect.scoped),
   )
@@ -228,7 +228,7 @@ describe("ConnectionObject.getAccessToken", () => {
         token: { _tag: "Status", status: 400 },
       })
       const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(failure, new ReauthorizationRequired({ provider: "spotify" }))
+      assert.deepStrictEqual(failure, ReauthorizationRequired.make({ provider: "spotify" }))
       assert.deepStrictEqual(
         yield* world.stores.spotify.readConnection,
         Option.some({
@@ -244,7 +244,7 @@ describe("ConnectionObject.getAccessToken", () => {
       assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
       // Once rejected, the next request fails the same way without asking again.
       const again = yield* Effect.flip(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(again, new ReauthorizationRequired({ provider: "spotify" }))
+      assert.deepStrictEqual(again, ReauthorizationRequired.make({ provider: "spotify" }))
       assert.strictEqual((yield* world.providers.received).length, 1)
     }).pipe(Effect.scoped),
   )

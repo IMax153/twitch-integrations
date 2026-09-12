@@ -607,8 +607,9 @@ describe("broadcaster routes", () => {
     it.effect("shows the Connected Account, granted scopes, and expiry once authorized", () =>
       Effect.gen(function* () {
         const { providers, startAttempt, callback, getConnections } = yield* world
-        yield* TestClock.setTime(
-          DateTime.toEpochMillis(DateTime.makeUnsafe("2026-09-11T12:00:00Z")),
+        yield* DateTime.makeUnsafe("2026-09-11T12:00:00Z").pipe(
+          DateTime.toEpochMillis,
+          TestClock.setTime,
         )
         yield* providers.set("twitch", grantedScenario)
         const { state } = yield* startAttempt("twitch")

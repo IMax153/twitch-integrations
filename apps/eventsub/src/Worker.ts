@@ -32,6 +32,8 @@ export default class EventSubWorker extends Cloudflare.Worker<EventSubWorker>()(
     // Read here, in the runtime Effect, so Alchemy binds the secret onto the
     // Worker at plan time and resolves it from that binding at runtime.
     yield* observed(WebhookSecret.config)
+    // The Worker's init is its entry point.
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide
     const fetch = yield* EventSubHttp.pipe(Effect.provide(WebhookSecret.layer))
     return { fetch: observed(fetch) }
   }),

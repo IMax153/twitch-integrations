@@ -139,7 +139,8 @@ const make = Effect.gen(function* () {
 export class ChannelStore extends Context.Service<ChannelStore, ChannelStoreService>()(
   "@twitch-integrations/api/ChannelStore",
 ) {
-  static readonly layer: Layer.Layer<ChannelStore, never, SqlClient.SqlClient> = Layer.effect(
-    ChannelStore,
-  )(Effect.orDie(make))
+  static readonly layer: Layer.Layer<ChannelStore, never, SqlClient.SqlClient> = make.pipe(
+    Effect.orDie,
+    Layer.effect(ChannelStore),
+  )
 }

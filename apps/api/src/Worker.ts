@@ -55,7 +55,9 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     // object reads its default.
     yield* observed(WebhookSecret.config)
     yield* observed(ALCHEMY_DEV)
+    // The Worker's init is its entry point.
     const fetch = yield* BroadcasterHttp.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide
       Effect.provide(Layer.merge(Connections.layer, Channel.layer)),
     )
     return { fetch: observed(fetch) }
