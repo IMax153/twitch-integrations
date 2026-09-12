@@ -3,7 +3,7 @@ import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import { EventSubHttp } from "./EventSubRoutes.ts"
-import { WebhookSecret } from "./WebhookSecret.ts"
+import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 
 /**
  * The port the receiver listens on under `alchemy dev`, next to the API

@@ -7,7 +7,7 @@ import * as Redacted from "effect/Redacted"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { EventSubHttp } from "../src/EventSubRoutes.ts"
-import { WebhookSecret } from "../src/WebhookSecret.ts"
+import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 import { createHmac } from "node:crypto"
 
 /** The secret the receiver is configured with; the tests sign with the same value. */

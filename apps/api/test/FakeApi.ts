@@ -18,10 +18,16 @@ export interface ReceivedRequest {
   readonly json: unknown
 }
 
-/** A JSON answer, or none when the fake plays a host that cannot be reached. */
-export type FakeResponse = { readonly status: number; readonly body: unknown } | "unreachable"
+/** A JSON answer, an empty answer, or none when the fake plays a host that cannot be reached. */
+export type FakeResponse =
+  | { readonly status: number; readonly body: unknown }
+  | { readonly status: number; readonly body?: undefined }
+  | "unreachable"
 
 export const respond = (status: number, body: unknown): FakeResponse => ({ status, body })
+
+/** An answer with no body, as Helix gives for a deletion. */
+export const respondEmpty = (status: number): FakeResponse => ({ status })
 
 /** What every fake API's scenario can say about timing. */
 export interface WithLatency {
@@ -146,7 +152,9 @@ export const routeByHostname = (
       }
       return HttpClientResponse.fromWeb(
         request,
-        Response.json(answer.body, { status: answer.status }),
+        answer.body === undefined
+          ? new Response(null, { status: answer.status })
+          : Response.json(answer.body, { status: answer.status }),
       )
     }),
   )

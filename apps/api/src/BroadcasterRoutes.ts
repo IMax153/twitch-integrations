@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { Channel } from "./Channel.ts"
 import { Connections } from "./Connections.ts"
 import type { AttemptClaim } from "./ConnectionStore.ts"
 
@@ -150,18 +151,41 @@ const callbackResponse = oauthRoute(({ provider, broadcaster, url }) =>
       return broadcasterPageRedirect(url.origin, "missing-code")
     }
     const result = yield* connections.completeAuthorization(provider, claim, code)
+    if (result === "connected" && provider === "twitch") {
+      yield* reconcileChannel
+    }
     return broadcasterPageRedirect(url.origin, result)
   }),
 )
 
+/**
+ * A fresh Twitch Connected Account gets the Reward and Event Subscriptions
+ * before the browser is sent on. A failure is logged and does not change
+ * the outcome the Broadcaster Page shows: the Connection is authorized
+ * either way, and the next reconcile runs the same steps again.
+ */
+const reconcileChannel = Effect.gen(function* () {
+  const channel = yield* Channel
+  yield* channel.reconcile.pipe(
+    Effect.tapError((failure) =>
+      Effect.logError("Reconcile after Twitch authorization failed", failure),
+    ),
+    Effect.ignore,
+  )
+})
+
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
-// `Connections` the surrounding Worker or test harness supplies.
+// `Connections` and `Channel` the surrounding Worker or test harness supplies.
 const routes = Layer.mergeAll(
   HttpRouter.add("GET", "/setup/api/connections", connectionsResponse),
   HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
   HttpRouter.add("GET", "/oauth/:provider/callback", callbackResponse),
-).pipe(HttpRouter.provideRequest(Layer.effect(Connections)(Connections)))
+).pipe(
+  HttpRouter.provideRequest(
+    Layer.merge(Layer.effect(Connections)(Connections), Layer.effect(Channel)(Channel)),
+  ),
+)
 
 /**
  * The Worker's HTTP handler: the Access gate over the broadcaster path prefixes,

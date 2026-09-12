@@ -1,3 +1,4 @@
+import { eventSubPath } from "@twitch-integrations/infra/Domain"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -7,10 +8,10 @@ import * as Headers from "effect/unstable/http/Headers"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { makeVerifier, type SignedMessage } from "./Signature.ts"
-import { WebhookSecret } from "./WebhookSecret.ts"
+import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 
 /** The one path Twitch delivers to; every other path and method gets an empty 404. */
-const webhookPath = "/eventsub/twitch"
+const webhookPath = eventSubPath
 
 /**
  * The largest body the receiver reads. Twitch's example redemption

@@ -17,7 +17,7 @@ const make = Effect.orDie(config)
  * it creates Event Subscriptions, read from its own bindings.
  */
 export class WebhookSecret extends Context.Service<WebhookSecret, Redacted.Redacted<string>>()(
-  "@twitch-integrations/eventsub/WebhookSecret",
+  "@twitch-integrations/infra/WebhookSecret",
 ) {
   static readonly config = config
   static readonly layer = Layer.effect(WebhookSecret)(make)

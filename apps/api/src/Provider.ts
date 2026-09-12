@@ -49,7 +49,7 @@ export interface TokenResponse {
   readonly scopes: Option.Option<ReadonlyArray<string>>
 }
 
-export type ProviderOperation = "exchange" | "refresh" | "identity"
+export type ProviderOperation = "exchange" | "refresh" | "identity" | "client-credentials"
 
 /** Why a request to the Provider did not produce what it should have. */
 export type ProviderFailureReason =
@@ -104,7 +104,8 @@ export const describeFailure = (failure: ProviderRequestFailed): string => {
   }
 }
 
-const failureReason = (
+/** What a failed HTTP call to a Provider amounts to, with the request and response left behind. */
+export const failureReason = (
   cause: HttpClientError.HttpClientError | Schema.SchemaError,
 ): ProviderFailureReason => {
   if (cause._tag === "SchemaError") {
@@ -132,6 +133,12 @@ export interface ProviderService extends ProviderDescription {
   readonly refresh: (
     refreshToken: Redacted.Redacted<string>,
   ) => Effect.Effect<TokenResponse, ProviderRequestFailed>
+  /**
+   * Submits the client credentials grant for an app access token: a token
+   * for the application itself rather than for the Connected Account. Twitch
+   * requires one to manage Event Subscriptions.
+   */
+  readonly requestClientCredentials: Effect.Effect<TokenResponse, ProviderRequestFailed>
   /** Asks the Provider which account the access token belongs to. */
   readonly fetchConnectedAccount: (
     accessToken: Redacted.Redacted<string>,
@@ -269,6 +276,9 @@ const make = (
           grant_type: "refresh_token",
           refresh_token: Redacted.value(refreshToken),
         }),
+      requestClientCredentials: requestTokens("client-credentials", {
+        grant_type: "client_credentials",
+      }),
       fetchConnectedAccount: (accessToken) =>
         Effect.gen(function* () {
           const request = HttpClientRequest.get(description.identityEndpoint).pipe(

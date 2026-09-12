@@ -1,5 +1,7 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
 import type { Connection } from "@twitch-integrations/domain/Connection"
+import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
+import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
@@ -58,4 +60,43 @@ export const grantedTokens: TokenGrant = {
 export const grantedScenario: ProviderScenario = {
   token: { _tag: "Grant", grant: grantedTokens },
   account: { id: "account-1", displayName: "Max" },
+}
+
+/** The Song Request Reward as the deployment stores it once created, unpaused. */
+export const songRequestReward: Reward = {
+  id: "reward-1",
+  ...songRequestSettings,
+  isPaused: false,
+}
+
+/** The three Event Subscriptions the deployment keeps, as Twitch reported them enabled. */
+export const storedSubscriptions: ReadonlyArray<EventSubscription> = [
+  {
+    id: "sub-redemption",
+    type: "channel.channel_points_custom_reward_redemption.add",
+    version: "1",
+    status: "enabled",
+    revocationReason: Option.none(),
+  },
+  {
+    id: "sub-online",
+    type: "stream.online",
+    version: "1",
+    status: "enabled",
+    revocationReason: Option.none(),
+  },
+  {
+    id: "sub-offline",
+    type: "stream.offline",
+    version: "1",
+    status: "enabled",
+    revocationReason: Option.none(),
+  },
+]
+
+/** The Twitch Connection, authorized for the Connected Account "max" with the user ID "twitch-user-1". */
+export const twitchConnection: Connection = {
+  ...authorizedConnection,
+  scopes: ["channel:manage:redemptions", "user:write:chat"],
+  connectedAccount: { id: "twitch-user-1", displayName: "max" },
 }

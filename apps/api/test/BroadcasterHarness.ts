@@ -13,9 +13,17 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
+import * as Redacted from "effect/Redacted"
 import type * as Scope from "effect/Scope"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
+import { Channel } from "../src/Channel.ts"
+import {
+  type ChannelObjectShape,
+  channelObjectLayer,
+  makeChannelObject,
+} from "../src/ChannelObject.ts"
+import { ChannelStore, type ChannelStoreService } from "../src/ChannelStore.ts"
 import {
   type ConnectionObjectShape,
   connectionObjectLayer,
@@ -23,6 +31,7 @@ import {
 } from "../src/ConnectionObject.ts"
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
+import { EventSubTransport } from "../src/EventSubTransport.ts"
 import type { RefreshAlarm } from "../src/RefreshAlarm.ts"
 import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
 import { FakeProviders, type FakeProvidersService } from "./FakeProviders.ts"
@@ -61,6 +70,17 @@ export interface SendOptions {
   readonly identity?: WorkerAccessIdentity
 }
 
+/** The receiver the Channel points Event Subscriptions at in tests, and the secret it signs with. */
+export const testTransport = {
+  callback: "https://stream.example/eventsub/twitch",
+  secret: "test-webhook-secret-0123",
+}
+
+export interface WorldOptions {
+  /** Whether the Channel may touch Event Subscriptions; false plays `alchemy dev`. */
+  readonly eventSubscriptions?: boolean
+}
+
 /**
  * One Worker plus one in-process Connection object per Provider, each over
  * its own in-memory database, alive for the surrounding scope. The stores are
@@ -81,6 +101,11 @@ export interface BroadcasterWorld {
    * builds one after evicting the previous instance.
    */
   readonly rebuildObject: (provider: ProviderName) => Effect.Effect<ConnectionObjectShape>
+  /** The one in-process Channel object, over its own in-memory database and the Connection objects above. */
+  readonly channel: ChannelObjectShape
+  readonly channelStore: ChannelStoreService
+  /** A new Channel object over the existing storage, as workerd builds one after an eviction. */
+  readonly rebuildChannel: Effect.Effect<ChannelObjectShape>
 }
 
 /**
@@ -109,8 +134,10 @@ const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A,
     Effect.map(make(provider), (value) => [provider, value] as const),
   ).pipe(Effect.map(Record.fromEntries))
 
-export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.Scope> = Effect.gen(
-  function* () {
+export const makeWorld = (
+  options: WorldOptions = {},
+): Effect.Effect<BroadcasterWorld, never, Scope.Scope> =>
+  Effect.gen(function* () {
     const fakes = yield* Layer.build(FakeProviders.layer)
     const providers = Context.get(fakes, FakeProviders)
     const alarms = yield* perProvider(() => Layer.build(FakeRefreshAlarm.layer))
@@ -125,7 +152,34 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       Connections,
       Connections.fromObjects((provider) => objects[provider]),
     )
-    const handler = yield* BroadcasterHttp.pipe(Effect.provide(connections))
+    const channelServices = yield* Layer.build(
+      channelObjectLayer.pipe(
+        Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
+        Layer.provide(FakeProviders.layerCredentials),
+        Layer.provide(Layer.succeedContext(fakes)),
+        Layer.provide(connections),
+        Layer.provide(
+          Layer.succeed(EventSubTransport, {
+            callback: testTransport.callback,
+            secret: Redacted.make(testTransport.secret),
+            enabled: options.eventSubscriptions ?? true,
+          }),
+        ),
+      ),
+    )
+    const rebuildChannel = makeChannelObject.pipe(Effect.provide(channelServices))
+    const channel = yield* rebuildChannel
+    const handler = yield* BroadcasterHttp.pipe(
+      Effect.provide(
+        Layer.merge(
+          connections,
+          Layer.succeed(
+            Channel,
+            Channel.fromObject(() => channel),
+          ),
+        ),
+      ),
+    )
 
     /**
      * Sends a Web request through Alchemy's request bridge to the Worker's
@@ -159,6 +213,11 @@ export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.
       providers,
       alarms: Record.map(alarms, Context.get(FakeRefreshAlarm)),
       rebuildObject,
+      channel,
+      channelStore: Context.get(channelServices, ChannelStore),
+      rebuildChannel,
     }
-  },
-)
+  })
+
+/** A world in which the Channel manages Event Subscriptions, as in production. */
+export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.Scope> = makeWorld()
