@@ -12,6 +12,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { Channel } from "./Channel.ts"
+import { ChannelObject } from "./ChannelObject.ts"
 import { Connections } from "./Connections.ts"
 import { BroadcasterHttp } from "./BroadcasterRoutes.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
@@ -27,10 +28,14 @@ const devPort = 1337
  * The API Worker owns the broadcaster hostname as its custom domain, so every
  * path not routed to another Worker lands here. The `/setup/api*` route is
  * more specific than the web Worker's `/setup*` route, so the page's JSON
- * requests reach this Worker.
+ * requests reach this Worker. It hosts the Channel object and declares so,
+ * which is what lets the receiver bind that object's namespace across
+ * scripts; the class is the Worker's identity and `layer` below is its
+ * implementation, which only the stack builds.
  */
-export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
-  "Worker",
+export class ApiWorker extends Cloudflare.Worker<ApiWorker, {}, ChannelObject>()("Worker") {}
+
+export default ApiWorker.make(
   Effect.gen(function* () {
     return {
       main: import.meta.url,
@@ -58,8 +63,10 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     // The Worker's init is its entry point.
     const fetch = yield* BroadcasterHttp.pipe(
       // oxlint-disable-next-line effecttsgo/strict-effect-provide
-      Effect.provide(Layer.merge(Connections.layer, Channel.layer)),
+      Effect.provide(
+        Layer.merge(Connections.layer, Channel.layer.pipe(Layer.provide(ChannelObject.layer))),
+      ),
     )
     return { fetch: observed(fetch) }
   }),
-) {}
+)

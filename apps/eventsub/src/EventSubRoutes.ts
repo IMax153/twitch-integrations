@@ -1,3 +1,4 @@
+import { Channel } from "@twitch-integrations/api/Channel"
 import { eventSubPath } from "@twitch-integrations/infra/Domain"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -7,6 +8,7 @@ import * as Schema from "effect/Schema"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { type Parsed, parseNotification, parseRevocation } from "./Notifications.ts"
 import { makeVerifier, type SignedMessage } from "./Signature.ts"
 import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 
@@ -77,9 +79,30 @@ const declaredLength = (headers: Headers.Headers): Option.Option<number> =>
     Option.map(Number),
   )
 
-/** The Worker's HTTP handler, built once over the configured secret. */
-export const EventSubHttp = Effect.flatMap(WebhookSecret, makeVerifier).pipe(
-  Effect.map((verify) =>
+/**
+ * Hands a parsed message to the Channel and acknowledges once it has
+ * recorded what it will. A message of an unknown type never reaches the
+ * Channel, and a malformed one is logged and acknowledged too: Twitch would
+ * only resend it, and no resend of the same body would parse better.
+ */
+const deliver = (channel: Channel["Service"]) =>
+  Effect.fnUntraced(function* (parsed: Parsed) {
+    switch (parsed._tag) {
+      case "Forward":
+        yield* channel.receive(parsed.notification)
+        return accepted
+      case "UnknownType":
+        yield* Effect.logInfo(`Ignoring a ${parsed.type} notification`)
+        return accepted
+      case "Malformed":
+        yield* Effect.logWarning("Ignoring a message whose body is not what its type says")
+        return accepted
+    }
+  })
+
+/** The Worker's HTTP handler, built once over the configured secret and the Channel. */
+export const EventSubHttp = Effect.all([Effect.flatMap(WebhookSecret, makeVerifier), Channel]).pipe(
+  Effect.map(([verify, channel]) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
       if (
@@ -112,11 +135,21 @@ export const EventSubHttp = Effect.flatMap(WebhookSecret, makeVerifier).pipe(
       if (!(yield* isFresh(signed.value.timestamp))) {
         return forbidden
       }
-      const messageType = Headers.get(request.headers, "twitch-eventsub-message-type")
-      if (Option.isSome(messageType) && messageType.value === "webhook_callback_verification") {
-        return answerChallenge(body.value)
+      const messageType = Option.getOrElse(
+        Headers.get(request.headers, "twitch-eventsub-message-type"),
+        () => "",
+      )
+      const { messageId } = signed.value
+      switch (messageType) {
+        case "webhook_callback_verification":
+          return answerChallenge(body.value)
+        case "notification":
+          return yield* deliver(channel)(parseNotification(messageId, body.value))
+        case "revocation":
+          return yield* deliver(channel)(parseRevocation(messageId, body.value))
+        default:
+          return accepted
       }
-      return accepted
     }),
   ),
 )

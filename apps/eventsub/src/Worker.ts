@@ -1,7 +1,11 @@
+import { Channel, channelName } from "@twitch-integrations/api/Channel"
+import { ChannelObject } from "@twitch-integrations/api/ChannelObject"
+import { ApiWorker } from "@twitch-integrations/api/Worker"
 import { broadcasterRoute, devHost } from "@twitch-integrations/infra/Domain"
 import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import { EventSubHttp } from "./EventSubRoutes.ts"
 import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 
@@ -13,12 +17,24 @@ import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
 const devPort = 1338
 
 /**
+ * The Channel object's namespace as the API Worker hosts it, bound across
+ * scripts: the receiver holds the namespace and nothing of the object's
+ * implementation, so its only binding is the one it delivers to.
+ */
+const channelLayer = Layer.effect(Channel)(
+  Effect.map(ChannelObject.from(ApiWorker), (objects) =>
+    Channel.fromObject(() => objects.getByName(channelName)),
+  ),
+)
+
+/**
  * The receiver: the one public Worker, on the `/eventsub*` route of the
  * shared hostname, where Twitch delivers EventSub webhook messages. It never
  * enrolls in the Access application, so Twitch reaches it without a login;
  * a route takes precedence over the API Worker's custom domain on the same
- * hostname. Its only configuration is the webhook secret: no Provider
- * Credentials, no Connection binding, and no workers.dev URL.
+ * hostname. Its configuration is the webhook secret and the Channel object's
+ * namespace: no Provider Credentials, no Connection binding, and no
+ * workers.dev URL.
  */
 export default class EventSubWorker extends Cloudflare.Worker<EventSubWorker>()(
   "EventSub",
@@ -33,8 +49,10 @@ export default class EventSubWorker extends Cloudflare.Worker<EventSubWorker>()(
     // Worker at plan time and resolves it from that binding at runtime.
     yield* observed(WebhookSecret.config)
     // The Worker's init is its entry point.
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide
-    const fetch = yield* EventSubHttp.pipe(Effect.provide(WebhookSecret.layer))
+    const fetch = yield* EventSubHttp.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide
+      Effect.provide(Layer.merge(WebhookSecret.layer, channelLayer)),
+    )
     return { fetch: observed(fetch) }
   }),
 ) {}

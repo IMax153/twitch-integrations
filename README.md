@@ -70,7 +70,7 @@ twitch event verify-subscription channel.channel_points_custom_reward_redemption
   -F http://127.0.0.1:1338/eventsub/twitch -s "$TWITCH_EVENTSUB_SECRET"
 ```
 
-The CLI reports a valid challenge, `text/plain`, and status 200. A notification is sent the same way with `twitch event trigger <type>` and is acknowledged with 204. With Nix, `nix run nixpkgs#twitch-cli -- event ...` runs the CLI without installing it.
+The CLI reports a valid challenge, `text/plain`, and status 200. A notification is sent the same way with `twitch event trigger <type>` and is acknowledged with 204 once the local Channel object has recorded it: `stream.online` and `stream.offline` set the Channel Live or Offline, and pause or unpause the Reward on Twitch when the local Twitch Connection is Authorized, so the API Worker's log shows which state the Channel took and, with no Connection, that the pause update failed. The receiver reaches the Channel object over a binding to the API Worker's script, which `alchemy dev` serves through its local registry. With Nix, `nix run nixpkgs#twitch-cli -- event ...` runs the CLI without installing it.
 
 ## Deployment
 

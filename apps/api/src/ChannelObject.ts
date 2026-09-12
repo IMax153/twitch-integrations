@@ -1,20 +1,26 @@
 import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
+import { Notification, type NotificationEncoded } from "@twitch-integrations/domain/Notification"
 import { hasSettings, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
+import { ChannelLock } from "./ChannelLock.ts"
+import { ChannelReceive } from "./ChannelReceive.ts"
 import { ChannelReconcile, type ReconcileError } from "./ChannelReconcile.ts"
 import { ChannelStore } from "./ChannelStore.ts"
 import { Connections } from "./Connections.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
 import { Helix } from "./Helix.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
+import { RewardPause } from "./RewardPause.ts"
+import { TwitchAccess } from "./TwitchAccess.ts"
 import { TwitchAppToken } from "./TwitchAppToken.ts"
 
 /**
@@ -29,7 +35,16 @@ export type ChannelObjectShape = {
    */
   // oxlint-disable-next-line effecttsgo/lazy-effect
   readonly reconcile: () => Effect.Effect<void, ReconcileError>
+  /**
+   * Acts on a notification the receiver verified, in its encoded form since
+   * it arrives by structured clone, and returns once the change is durable.
+   * A resend of a processed message, or a notification the Channel has no
+   * use for, changes nothing.
+   */
+  readonly receive: (notification: NotificationEncoded) => Effect.Effect<void>
 }
+
+const decodeNotification = Schema.decodeUnknownEffect(Notification)
 
 /**
  * The object's behavior over its services, independent of Durable Object
@@ -40,10 +55,11 @@ export type ChannelObjectShape = {
 export const makeChannelObject: Effect.Effect<
   ChannelObjectShape,
   never,
-  ChannelStore | ChannelReconcile
+  ChannelStore | ChannelReconcile | ChannelReceive
 > = Effect.gen(function* () {
   const store = yield* ChannelStore
   const { reconcile } = yield* ChannelReconcile
+  const { receive } = yield* ChannelReceive
   const stored = yield* store.readReward
   if (Option.isSome(stored) && !hasSettings(stored.value, songRequestSettings)) {
     yield* Effect.logInfo("The stored Reward's settings differ from the spec; reconciling")
@@ -51,6 +67,10 @@ export const makeChannelObject: Effect.Effect<
   }
   return {
     reconcile: () => observed(reconcile),
+    // The receiver only ever sends what it encoded from this schema, so a
+    // notification that does not decode is a defect, not a failure to report.
+    receive: (notification) =>
+      decodeNotification(notification).pipe(Effect.orDie, Effect.flatMap(receive), observed),
   }
 })
 
@@ -60,52 +80,60 @@ export const makeChannelObject: Effect.Effect<
  * and the transport settings.
  */
 export const channelObjectLayer: Layer.Layer<
-  ChannelStore | ChannelReconcile,
+  ChannelStore | ChannelReconcile | ChannelReceive,
   never,
   | SqlClient.SqlClient
   | ProviderCredentials
   | HttpClient.HttpClient
   | Connections
   | EventSubTransport
-> = ChannelReconcile.layer.pipe(
+> = Layer.merge(ChannelReconcile.layer, ChannelReceive.layer).pipe(
+  Layer.provide(Layer.mergeAll(ChannelLock.layer, TwitchAccess.layer, RewardPause.layer)),
   Layer.provideMerge(Layer.mergeAll(ChannelStore.layer, Helix.layer, TwitchAppToken.layer)),
 )
 
 /**
- * The one Channel object, addressed by a fixed name. It hosts the Channel
- * store over its own SQLite storage and reaches the Connection objects over
- * their namespace, the same way the Worker does.
+ * The one Channel object, addressed by a fixed name. The class is only the
+ * object's identity, which the receiver imports to bind the namespace the
+ * API Worker hosts; `layer` is the implementation, built by the API Worker
+ * alone. The object hosts the Channel store over its own SQLite storage and
+ * reaches the Connection objects over their namespace, the same way the
+ * Worker does.
  */
-export class ChannelObject extends Cloudflare.DurableObject<ChannelObject>()(
+export class ChannelObject extends Cloudflare.DurableObject<ChannelObject, ChannelObjectShape>()(
   "ChannelObject",
-  Effect.gen(function* () {
-    const state = yield* Cloudflare.DurableObjectState
-    // The Connection objects' namespace is resolved here, in the init
-    // Effect, which is the only place the hosting Worker's services are
-    // available; the instance Effect below may need only the object's own.
-    // The object's init is its entry point.
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide
-    const connections = yield* Effect.provide(Connections, Connections.layer)
-    // Alchemy's constructor contract: the init Effect returns the Effect that
-    // builds the instance, so the nested Effect here is intended.
-    // oxlint-disable-next-line effecttsgo/return-effect-in-gen
-    return observed(
-      Effect.gen(function* () {
-        // The store lives as long as this in-memory instance; its scope is
-        // never closed on purpose, as on the Connection object.
-        const instanceScope = yield* Scope.make()
-        const services = yield* Layer.buildWithScope(
-          channelObjectLayer.pipe(
-            Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
-            Layer.provide(ProviderCredentials.layer),
-            Layer.provide(FetchHttpClient.layer),
-            Layer.provide(Layer.succeed(Connections, connections)),
-            Layer.provide(EventSubTransport.layer),
-          ),
-          instanceScope,
-        )
-        return yield* makeChannelObject.pipe(Effect.provide(services))
-      }),
-    )
-  }),
-) {}
+) {
+  // Every service the init needs is one the hosting Worker provides.
+  static readonly layer = ChannelObject.make<never>(
+    Effect.gen(function* () {
+      const state = yield* Cloudflare.DurableObjectState
+      // The Connection objects' namespace is resolved here, in the init
+      // Effect, which is the only place the hosting Worker's services are
+      // available; the instance Effect below may need only the object's own.
+      // The object's init is its entry point.
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide
+      const connections = yield* Effect.provide(Connections, Connections.layer)
+      // Alchemy's constructor contract: the init Effect returns the Effect that
+      // builds the instance, so the nested Effect here is intended.
+      // oxlint-disable-next-line effecttsgo/return-effect-in-gen
+      return observed(
+        Effect.gen(function* () {
+          // The store lives as long as this in-memory instance; its scope is
+          // never closed on purpose, as on the Connection object.
+          const instanceScope = yield* Scope.make()
+          const services = yield* Layer.buildWithScope(
+            channelObjectLayer.pipe(
+              Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
+              Layer.provide(ProviderCredentials.layer),
+              Layer.provide(FetchHttpClient.layer),
+              Layer.provide(Layer.succeed(Connections, connections)),
+              Layer.provide(EventSubTransport.layer),
+            ),
+            instanceScope,
+          )
+          return yield* makeChannelObject.pipe(Effect.provide(services))
+        }),
+      )
+    }),
+  )
+}

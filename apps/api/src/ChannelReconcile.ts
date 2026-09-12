@@ -1,7 +1,7 @@
-import { ChannelState } from "@twitch-integrations/domain/ChannelState"
-import {
+import type { ChannelState } from "@twitch-integrations/domain/ChannelState"
+import type {
   ConnectionNotConfigured,
-  type ReauthorizationRequired,
+  ReauthorizationRequired,
 } from "@twitch-integrations/domain/ConnectionErrors"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
@@ -9,17 +9,13 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as Semaphore from "effect/Semaphore"
+import { ChannelLock } from "./ChannelLock.ts"
 import { ChannelStore } from "./ChannelStore.ts"
-import { Connections } from "./Connections.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
-import {
-  type AccessToken,
-  type EventSubscriptionRequest,
-  Helix,
-  type HelixRequestFailed,
-} from "./Helix.ts"
+import { type EventSubscriptionRequest, Helix, type HelixRequestFailed } from "./Helix.ts"
 import type { ProviderRequestFailed } from "./Provider.ts"
+import { RewardPause } from "./RewardPause.ts"
+import { TwitchAccess, type TwitchAccessGrant } from "./TwitchAccess.ts"
 import { TwitchAppToken } from "./TwitchAppToken.ts"
 
 /** Why a reconcile stopped: Twitch is not connected, or a Twitch request failed. */
@@ -76,23 +72,11 @@ const make = Effect.gen(function* () {
   const store = yield* ChannelStore
   const helix = yield* Helix
   const appToken = yield* TwitchAppToken
-  const connections = yield* Connections
   const transport = yield* EventSubTransport
+  const lock = yield* ChannelLock
+  const access = yield* TwitchAccess
+  const pause = yield* RewardPause
   const settings = songRequestSettings
-
-  // NOTE: one permit, shared later with Redemption processing, so a
-  // reconcile never runs beside another reconcile or a Redemption.
-  const lock = yield* Semaphore.make(1)
-
-  /** The Twitch Connected Account's ID, which every Helix call names as the broadcaster. */
-  const connectedAccountId: Effect.Effect<string, ConnectionNotConfigured> = Effect.gen(
-    function* () {
-      const summary = yield* connections.describe("twitch")
-      return summary.connectedAccount === null
-        ? yield* ConnectionNotConfigured.make({ provider: "twitch" })
-        : summary.connectedAccount.id
-    },
-  )
 
   /**
    * The Reward with its settings as the spec fixes them: created when none
@@ -100,10 +84,10 @@ const make = Effect.gen(function* () {
    * place. Never deleted, since deleting a reward fulfils its open
    * Redemptions.
    */
-  const ensureReward = Effect.fn("ChannelReconcile.ensureReward")(function* (
-    token: AccessToken,
-    account: string,
-  ) {
+  const ensureReward = Effect.fn("ChannelReconcile.ensureReward")(function* ({
+    token,
+    account,
+  }: TwitchAccessGrant) {
     const stored = yield* store.readReward
     const existingId = Option.isSome(stored)
       ? Option.some(stored.value.id)
@@ -153,36 +137,22 @@ const make = Effect.gen(function* () {
     },
   )
 
-  const seedState = Effect.fn("ChannelReconcile.seedState")(function* (
-    token: AccessToken,
-    account: string,
-  ) {
+  const seedState = Effect.fn("ChannelReconcile.seedState")(function* ({
+    token,
+    account,
+  }: TwitchAccessGrant) {
     const state: ChannelState = (yield* helix.isLive(token, account)) ? "Live" : "Offline"
     yield* store.writeState(state)
     return state
   })
 
-  /** Paused while Offline, unpaused while Live; stored as Twitch reports it. */
-  const setPause = Effect.fn("ChannelReconcile.setPause")(function* (
-    token: AccessToken,
-    account: string,
-    reward: Reward,
-    state: ChannelState,
-  ) {
-    const updated = yield* helix.updateReward(token, account, reward.id, {
-      isPaused: state === "Offline",
-    })
-    yield* store.writeReward({ ...reward, isPaused: updated.isPaused })
-  })
-
   const reconcile: Effect.Effect<void, ReconcileError> = lock.withPermit(
     Effect.gen(function* () {
-      const token = yield* connections.getAccessToken("twitch")
-      const account = yield* connectedAccountId
-      const reward = yield* ensureReward(token, account)
-      yield* replaceEventSubscriptions(account, reward.id)
-      const state = yield* seedState(token, account)
-      yield* setPause(token, account, reward, state)
+      const grant = yield* access.current
+      const reward = yield* ensureReward(grant)
+      yield* replaceEventSubscriptions(grant.account, reward.id)
+      const state = yield* seedState(grant)
+      yield* pause.toMatch(grant, reward, state)
     }),
   )
 
@@ -196,6 +166,12 @@ export class ChannelReconcile extends Context.Service<ChannelReconcile, ChannelR
   static readonly layer: Layer.Layer<
     ChannelReconcile,
     never,
-    ChannelStore | Helix | TwitchAppToken | Connections | EventSubTransport
+    | ChannelStore
+    | Helix
+    | TwitchAppToken
+    | EventSubTransport
+    | ChannelLock
+    | TwitchAccess
+    | RewardPause
   > = Layer.effect(ChannelReconcile)(make)
 }

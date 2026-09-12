@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../infra" }],
+  "references": [{ "path": "../api" }, { "path": "../infra" }, { "path": "../../packages/domain" }],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
