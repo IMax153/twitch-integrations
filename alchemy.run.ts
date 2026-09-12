@@ -3,6 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 
 import ApiWorkerLayer, { ApiWorker } from "@twitch-integrations/api/Worker"
+import { EventSubRateLimit } from "@twitch-integrations/eventsub/RateLimit"
 import EventSubWorker from "@twitch-integrations/eventsub/Worker"
 import { CloudflareAccess, BroadcasterAccess } from "@twitch-integrations/infra/Access"
 import { guardStage } from "@twitch-integrations/infra/Stage"
@@ -26,6 +27,9 @@ export default Alchemy.Stack(
       // binds the Channel object the API Worker hosts, which is why the API
       // Worker's layer is provided around both rather than to each.
       yield* EventSubWorker
+      // The zone rate limit on the receiver's route is the public route's
+      // guard against a flood. It is a zone resource, not a Worker binding.
+      yield* EventSubRateLimit
 
       return {
         accessApplicationId: access?.applicationId,

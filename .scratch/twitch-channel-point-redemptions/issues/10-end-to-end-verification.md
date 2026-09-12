@@ -13,3 +13,7 @@
 - [ ] A Song Request with a valid track link while Live queues the track on Spotify, is marked fulfilled, and gets the success chat reply
 - [ ] A Song Request with a non-track link is refunded and gets the refund chat reply
 - [ ] Observations, timings, and any deviation from the spec are recorded in a comment on this ticket
+
+## Comments
+
+Note from ticket 09 (2026-09-12): the deploy now creates a zone rate-limiting rule (`EventSubRateLimit`) and adopts the `minbadblue.com` zone. Two prerequisites before the first box: the Alchemy Cloudflare profile carries `zone.read` but no `zone-waf` scope, so run `alchemy profile edit` and add `zone-waf.write` first, or the ruleset's `PUT` fails with an authentication error the plan cannot surface. The rule's expression uses `starts_with` on the path; the Free plan's dashboard offers "starts with" on the path field, but only the deploy confirms the API accepts it, and the fallback is `http.request.uri.path eq "/eventsub/twitch"`. The resource owns the zone's whole `http_ratelimit` phase, so any rule made by hand in that phase is replaced; check the dashboard's rate limiting rules once before deploying if one might exist. Expect `[Zone] adopted` and `[EventSubRateLimit] create` in the plan alongside the Worker updates.

@@ -24,8 +24,14 @@ export const broadcasterRoute = (pathPattern: `/${string}`) => ({
   zoneName,
 })
 
+/**
+ * The path prefix the receiver owns on the shared hostname: its route, and
+ * the path the zone rate limit counts, are both built from it.
+ */
+export const eventSubRoutePrefix = "/eventsub"
+
 /** The one path on the shared hostname that Twitch delivers EventSub webhook messages to. */
-export const eventSubPath = "/eventsub/twitch"
+export const eventSubPath = `${eventSubRoutePrefix}/twitch`
 
 /** The callback URL every Event Subscription names: the receiver on the shared hostname. */
 export const eventSubCallbackUrl = `https://${broadcasterHostname}${eventSubPath}`
