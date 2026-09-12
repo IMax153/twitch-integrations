@@ -5,6 +5,7 @@ import {
   type NotificationEncoded,
   type NotificationEvent,
 } from "@twitch-integrations/domain/Notification"
+import type { Redemption } from "@twitch-integrations/domain/Redemption"
 import { songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -22,6 +23,7 @@ import { HelixRequestFailed } from "../src/Helix.ts"
 import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
 import {
+  authorizedConnection,
   manageableSongRequest,
   songRequestReward,
   storedSubscriptions,
@@ -423,17 +425,23 @@ const online: NotificationEvent = { _tag: "StreamOnline" }
 
 const offline: NotificationEvent = { _tag: "StreamOffline" }
 
-/** A Redemption of the reward with the ID, which may or may not be the Reward's. */
-const redemptionAdded = (rewardId: string): NotificationEvent => ({
+/** A Redemption of the reward with the ID, which may or may not be the Reward's, with the input the viewer typed. */
+const redemption = (
+  rewardId: string,
+  input = "spotify:track:abc",
+  id = "redemption-1",
+): Redemption => ({
+  id,
+  rewardId,
+  viewerId: "viewer-1",
+  viewerName: "viewer",
+  input,
+  redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
+})
+
+const redemptionAdded = (rewardId: string, input?: string, id?: string): NotificationEvent => ({
   _tag: "RedemptionAdded",
-  redemption: {
-    id: "redemption-1",
-    rewardId,
-    viewerId: "viewer-1",
-    viewerName: "viewer",
-    input: "spotify:track:abc",
-    redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
-  },
+  redemption: redemption(rewardId, input, id),
 })
 
 /** The world with the Reward stored in the given pause state and known to Helix, so a pause update can answer. */
@@ -563,6 +571,163 @@ describe("ChannelObject.receive", () => {
       // The failure is logged and the notification acknowledged, not retried: reconcile repairs the pause state.
       yield* world.channel.receive(notification("message-1", offline))
       assert.lengthOf(yield* rewardRequests(world), 1)
+    }).pipe(Effect.scoped),
+  )
+})
+
+const spotifyQueueUrl = "https://api.spotify.com/v1/me/player/queue"
+
+const spotifyTracksUrl = "https://api.spotify.com/v1/tracks"
+
+const redemptionsUrl = "https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions"
+
+const chatUrl = "https://api.twitch.tv/helix/chat/messages"
+
+/** A track link as the viewer pastes it from Spotify's share menu, for the track with the ID. */
+const trackLink = (trackId: string) => `https://open.spotify.com/track/${trackId}?si=share-token`
+
+const neverGonna = { name: "Never Gonna Give You Up", artists: ["Rick Astley"] }
+
+/**
+ * The world Live with the Reward stored, both Connections authorized and
+ * their tokens accepted, and Spotify knowing the tracks the tests request.
+ */
+const worldLiveWithSpotify = Effect.fnUntraced(function* (
+  tracks: Record<string, { name: string; artists: ReadonlyArray<string> }> = {
+    "4uLU6hMCjMI75M1A2tKUQC": neverGonna,
+  },
+) {
+  const world = yield* worldWithReward(false)
+  yield* world.channelStore.writeState("Live")
+  yield* world.stores.spotify.writeConnection(authorizedConnection)
+  yield* world.providers.spotifyWeb.set({
+    accessToken: Option.some("access-token-1"),
+    account: { id: "spotify-user-1", displayName: "Max" },
+    tracks,
+  })
+  return world
+})
+
+/** The queue adds Spotify received, by the URI each asked to queue. */
+const queuedUris = (world: BroadcasterWorld) =>
+  Effect.map(world.providers.spotifyWeb.received, (requests) =>
+    requests
+      .filter((request) => request.url.startsWith(spotifyQueueUrl))
+      .map((request) => new URL(request.url).searchParams.get("uri")),
+  )
+
+describe("ChannelObject.receive of a Song Request", () => {
+  it.effect("queues the track, fulfils the Redemption, and replies in chat, in that order", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.channel.receive(
+        notification("message-1", redemptionAdded("reward-1", trackLink("4uLU6hMCjMI75M1A2tKUQC"))),
+      )
+      yield* world.settled
+      const requests = yield* world.providers.received
+      assert.deepStrictEqual(lines(requests), [
+        `POST ${spotifyQueueUrl}?uri=spotify%3Atrack%3A4uLU6hMCjMI75M1A2tKUQC`,
+        `GET ${spotifyTracksUrl}/4uLU6hMCjMI75M1A2tKUQC`,
+        `PATCH ${redemptionsUrl}?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`,
+        `POST ${chatUrl}`,
+      ])
+      const [queued, looked, fulfilled, chatted] = requests
+      assert.strictEqual(queued?.headers["authorization"], "Bearer access-token-1")
+      assert.strictEqual(looked?.headers["authorization"], "Bearer access-token-1")
+      assert.deepStrictEqual(fulfilled?.json, { status: "FULFILLED" })
+      assert.strictEqual(fulfilled?.headers["authorization"], "Bearer access-token-1")
+      assert.deepStrictEqual(chatted?.json, {
+        broadcaster_id: "twitch-user-1",
+        sender_id: "twitch-user-1",
+        message: "@viewer added Never Gonna Give You Up by Rick Astley to the queue.",
+      })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "acknowledges before processing and processes a burst one at a time in arrival order",
+    () =>
+      Effect.gen(function* () {
+        const tracks = [
+          "4uLU6hMCjMI75M1A2tKUQC",
+          "7GhIk7Il098yCjg4BQjzvb",
+          "0VjIjW4GlUZAMYd2vXMi3b",
+        ]
+        const world = yield* worldLiveWithSpotify(
+          Object.fromEntries(
+            tracks.map((id) => [id, { name: `Track ${id}`, artists: ["Artist"] }]),
+          ),
+        )
+        yield* Effect.forEach(tracks, (trackId, index) =>
+          world.channel.receive(
+            notification(
+              `message-${index}`,
+              redemptionAdded("reward-1", `spotify:track:${trackId}`, `redemption-${index}`),
+            ),
+          ),
+        )
+        // Every acknowledgement came back before any of the slow work started.
+        assert.deepStrictEqual(yield* world.providers.received, [])
+        yield* world.settled
+        assert.deepStrictEqual(
+          yield* queuedUris(world),
+          tracks.map((trackId) => `spotify:track:${trackId}`),
+        )
+        // Each Redemption ran to its chat reply before the next was queued.
+        const kinds = (yield* world.providers.received).map((request) =>
+          request.url.startsWith(spotifyQueueUrl)
+            ? "queue"
+            : request.url === chatUrl
+              ? "chat"
+              : "other",
+        )
+        assert.deepStrictEqual(
+          kinds.filter((kind) => kind !== "other"),
+          ["queue", "chat", "queue", "chat", "queue", "chat"],
+        )
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("names the track by the link when the reply would pass 500 characters", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify({
+        "4uLU6hMCjMI75M1A2tKUQC": { name: "A".repeat(300), artists: ["B".repeat(300)] },
+      })
+      yield* world.channel.receive(
+        notification(
+          "message-1",
+          redemptionAdded("reward-1", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"),
+        ),
+      )
+      yield* world.settled
+      const chatted = (yield* world.providers.received).filter((request) => request.url === chatUrl)
+      const [{ message }] = chatted.map((request) => request.json as { message: string })
+      assert.isAtMost(message.length, 500)
+      assert.match(message, /^@viewer added .* to the queue\.$/)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("drains a queue left over from before the object stopped when it starts", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.channelStore.enqueueRedemption(
+        redemption("reward-1", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"),
+      )
+      yield* world.rebuildChannel
+      yield* world.settled
+      assert.deepStrictEqual(yield* queuedUris(world), ["spotify:track:4uLU6hMCjMI75M1A2tKUQC"])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("drains a queue left over from before the object stopped when it next receives", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.channelStore.enqueueRedemption(
+        redemption("reward-1", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"),
+      )
+      yield* world.channel.receive(notification("message-1", online))
+      yield* world.settled
+      assert.deepStrictEqual(yield* queuedUris(world), ["spotify:track:4uLU6hMCjMI75M1A2tKUQC"])
     }).pipe(Effect.scoped),
   )
 })

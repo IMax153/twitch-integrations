@@ -19,7 +19,10 @@ import { Connections } from "./Connections.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
 import { Helix } from "./Helix.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
+import { RedemptionQueue } from "./RedemptionQueue.ts"
 import { RewardPause } from "./RewardPause.ts"
+import { SongRequests } from "./SongRequests.ts"
+import { Spotify } from "./Spotify.ts"
 import { TwitchAccess } from "./TwitchAccess.ts"
 import { TwitchAppToken } from "./TwitchAppToken.ts"
 
@@ -50,21 +53,24 @@ const decodeNotification = Schema.decodeUnknownEffect(Notification)
  * The object's behavior over its services, independent of Durable Object
  * hosting. An object that starts with a stored Reward whose settings differ
  * from the spec's constants reconciles itself, so a change to the constants
- * reaches the channel without the Broadcaster reconnecting Twitch.
+ * reaches the channel without the Broadcaster reconnecting Twitch; one that
+ * starts with Redemptions still queued goes on processing them.
  */
 export const makeChannelObject: Effect.Effect<
   ChannelObjectShape,
   never,
-  ChannelStore | ChannelReconcile | ChannelReceive
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue
 > = Effect.gen(function* () {
   const store = yield* ChannelStore
   const { reconcile } = yield* ChannelReconcile
   const { receive } = yield* ChannelReceive
+  const queue = yield* RedemptionQueue
   const stored = yield* store.readReward
   if (Option.isSome(stored) && !hasSettings(stored.value, songRequestSettings)) {
     yield* Effect.logInfo("The stored Reward's settings differ from the spec; reconciling")
     yield* reconcile.pipe(observed, Effect.ignore)
   }
+  yield* queue.kick
   return {
     reconcile: () => observed(reconcile),
     // The receiver only ever sends what it encoded from this schema, so a
@@ -80,7 +86,7 @@ export const makeChannelObject: Effect.Effect<
  * and the transport settings.
  */
 export const channelObjectLayer: Layer.Layer<
-  ChannelStore | ChannelReconcile | ChannelReceive,
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue,
   never,
   | SqlClient.SqlClient
   | ProviderCredentials
@@ -88,8 +94,12 @@ export const channelObjectLayer: Layer.Layer<
   | Connections
   | EventSubTransport
 > = Layer.merge(ChannelReconcile.layer, ChannelReceive.layer).pipe(
+  Layer.provideMerge(RedemptionQueue.layer),
+  Layer.provide(SongRequests.layer),
   Layer.provide(Layer.mergeAll(ChannelLock.layer, TwitchAccess.layer, RewardPause.layer)),
-  Layer.provideMerge(Layer.mergeAll(ChannelStore.layer, Helix.layer, TwitchAppToken.layer)),
+  Layer.provideMerge(
+    Layer.mergeAll(ChannelStore.layer, Helix.layer, Spotify.layer, TwitchAppToken.layer),
+  ),
 )
 
 /**

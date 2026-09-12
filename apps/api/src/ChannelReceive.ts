@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelLock } from "./ChannelLock.ts"
 import { ChannelStore } from "./ChannelStore.ts"
+import { RedemptionQueue } from "./RedemptionQueue.ts"
 import { RewardPause } from "./RewardPause.ts"
 import { TwitchAccess } from "./TwitchAccess.ts"
 
@@ -30,6 +31,7 @@ const make = Effect.gen(function* () {
   const lock = yield* ChannelLock
   const access = yield* TwitchAccess
   const pause = yield* RewardPause
+  const queue = yield* RedemptionQueue
 
   /**
    * Sets the Channel's state and the Reward's pause state to match. The
@@ -69,10 +71,14 @@ const make = Effect.gen(function* () {
     return true
   })
 
-  /** Whether the Redemption is of the Reward; processing it is the next ticket's work. */
-  const isOfReward = Effect.fnUntraced(function* (redemption: Redemption) {
+  /** Queues a Redemption of the Reward for processing once this call has returned; one of any other reward is not the Channel's. */
+  const enqueue = Effect.fnUntraced(function* (redemption: Redemption) {
     const reward = yield* store.readReward
-    return Option.isSome(reward) && reward.value.id === redemption.rewardId
+    if (Option.isNone(reward) || reward.value.id !== redemption.rewardId) {
+      return false
+    }
+    yield* queue.enqueue(redemption)
+    return true
   })
 
   /** Acts on the event and says whether it was acted on, so only acted-on messages are remembered. */
@@ -86,7 +92,7 @@ const make = Effect.gen(function* () {
       case "Revocation":
         return revoke(notification.subscriptionId, event)
       case "RedemptionAdded":
-        return isOfReward(event.redemption)
+        return enqueue(event.redemption)
     }
   }
 
@@ -103,6 +109,8 @@ const make = Effect.gen(function* () {
       }
     },
     (self) => lock.withPermit(self),
+    // Any notification is a chance to finish Redemptions left queued when the object last stopped.
+    Effect.andThen(queue.kick),
   )
 
   return ChannelReceive.of({ receive })
@@ -115,6 +123,6 @@ export class ChannelReceive extends Context.Service<ChannelReceive, ChannelRecei
   static readonly layer: Layer.Layer<
     ChannelReceive,
     never,
-    ChannelStore | ChannelLock | TwitchAccess | RewardPause
+    ChannelStore | ChannelLock | TwitchAccess | RewardPause | RedemptionQueue
   > = Layer.effect(ChannelReceive)(make)
 }

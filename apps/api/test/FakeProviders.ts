@@ -102,10 +102,21 @@ export interface SpotifyAccountsScenario extends WithLatency {
   readonly token: TokenEndpoint
 }
 
-/** How the Spotify Web API answers: the access token it accepts, or none while nothing has been granted, and whose account that is. */
+/** A track as the fake Spotify knows it. */
+export interface SpotifyTrackRecord {
+  readonly name: string
+  readonly artists: ReadonlyArray<string>
+}
+
+/**
+ * How the Spotify Web API answers: the access token it accepts, or none
+ * while nothing has been granted, whose account that is, and the tracks it
+ * knows by ID; none unless the test says so.
+ */
 export interface SpotifyWebScenario extends WithLatency {
   readonly accessToken: Option.Option<string>
   readonly account: ConnectedAccount
+  readonly tracks?: Readonly<Record<string, SpotifyTrackRecord>>
 }
 
 export interface FakeProvidersService {
@@ -375,6 +386,21 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
         ? respondEmpty(204)
         : respond(404, { error: "Not Found" }),
     ),
+    "PATCH /helix/channel_points/custom_rewards/redemptions": userEndpoint((_scenario, received) =>
+      respond(200, {
+        data: [
+          {
+            id: query(received).get("id"),
+            broadcaster_id: query(received).get("broadcaster_id"),
+            reward: { id: query(received).get("reward_id") },
+            status: asRecord(received.json)["status"],
+          },
+        ],
+      }),
+    ),
+    "POST /helix/chat/messages": userEndpoint(() =>
+      respond(200, { data: [{ message_id: "chat-message-1", is_sent: true, drop_reason: null }] }),
+    ),
     "GET /helix/streams": userEndpoint((scenario, received) =>
       respond(200, {
         data:
@@ -410,6 +436,21 @@ const spotifyAccounts: FakeApiDefinition<SpotifyAccountsScenario> = {
   },
 }
 
+/** A Spotify Web API endpoint that needs the granted access token as a bearer. */
+const spotifyEndpoint =
+  (
+    answer: (scenario: SpotifyWebScenario, received: ReceivedRequest) => FakeResponse,
+  ): Endpoint<SpotifyWebScenario> =>
+  (scenario, received) => {
+    if (scenario === undefined) {
+      return noScenario
+    }
+    const accepted = Option.getOrUndefined(scenario.accessToken)
+    return accepted !== undefined && received.headers["authorization"] === `Bearer ${accepted}`
+      ? answer(scenario, received)
+      : respond(401, { error: { status: 401, message: "Invalid access token" } })
+  }
+
 const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
   hostname: "api.spotify.com",
   endpoints: {
@@ -419,6 +460,18 @@ const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
         body: { id: scenario.account.id, display_name: scenario.account.displayName },
       })),
     ),
+    "POST /v1/me/player/queue": spotifyEndpoint(() => respondEmpty(204)),
+    "GET /v1/tracks/*": spotifyEndpoint((scenario, received) => {
+      const id = new URL(received.url).pathname.split("/").pop() ?? ""
+      const track = scenario.tracks?.[id]
+      return track === undefined
+        ? respond(404, { error: { status: 404, message: "Non existing id" } })
+        : respond(200, {
+            id,
+            name: track.name,
+            artists: track.artists.map((name) => ({ name })),
+          })
+    }),
   },
 }
 

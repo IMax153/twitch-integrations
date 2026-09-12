@@ -4,13 +4,17 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Domain schemas for Redemption and RedemptionOutcome exist in the domain package with identifier annotations
-- [ ] The input parser accepts both link forms and is tested as a pure function over a table of inputs
-- [ ] A redemption add notification for the Reward is durable before the receiver responds 2xx
-- [ ] Redemptions are processed one at a time in arrival order, verified by a burst of notifications and the order of fake Spotify queue calls
-- [ ] The queue add, the track lookup, the fulfil call, and the chat send each go to the fake API with the expected identifiers, and the chat reply carries the track name and artist
-- [ ] The chat send sets sender and broadcaster to the Twitch Connected Account's ID and stays under 500 characters
-- [ ] A queue that was left non-empty when the object stopped drains when the object next starts or receives
-- [ ] Tests run the whole path from a signed notification through the receiver to the fake Spotify and Helix APIs
+- [x] Domain schemas for Redemption and RedemptionOutcome exist in the domain package with identifier annotations
+- [x] The input parser accepts both link forms and is tested as a pure function over a table of inputs
+- [x] A redemption add notification for the Reward is durable before the receiver responds 2xx
+- [x] Redemptions are processed one at a time in arrival order, verified by a burst of notifications and the order of fake Spotify queue calls
+- [x] The queue add, the track lookup, the fulfil call, and the chat send each go to the fake API with the expected identifiers, and the chat reply carries the track name and artist
+- [x] The chat send sets sender and broadcaster to the Twitch Connected Account's ID and stays under 500 characters
+- [x] A queue that was left non-empty when the object stopped drains when the object next starts or receives
+- [x] Tests run the whole path from a signed notification through the receiver to the fake Spotify and Helix APIs
+
+## Comments
+
+Implemented on 2026-09-12. `packages/domain` gains `RedemptionOutcome` (Fulfilled, or Cancelled with one of the five reasons), `SongRequestInput` with `parseSongRequestInput`, which accepts a track page URL with or without its scheme, a trailing slash, or Spotify's `intl-xx` path segment, ignores the query string, accepts `spotify:track:<id>`, and refuses everything else as `NotATrackLink`, and `SongRequestReply` with the spec's chat wording per outcome and `replyTo`, which names the queued track by name and artists, or by the link the viewer pasted when the reply would pass Twitch's 500 characters. In `apps/api`, `Spotify.ts` wraps add-to-queue and get-track under the Spotify Connection's token, keeping Spotify's reason code such as `NO_ACTIVE_DEVICE` on its error for ticket 07; `Helix.ts` gains update redemption status and send chat message, the latter setting sender and broadcaster to the Twitch Connected Account; `ChannelStore` gains the `redemption_queue` table with enqueue, next, and remove; `SongRequests.ts` holds the rules for one Redemption (Offline, the parse, the Spotify token, and the queue add each decide a cancellation reason that is logged for now and settled by ticket 07; a queued track is looked up, the Redemption fulfilled, and the reply sent, with a dropped reply logged); `RedemptionQueue.ts` appends under the receive call, so the receiver is answered once the append is durable, and drains in forked fibers, one Redemption at a time under the shared `ChannelLock` in arrival order, kicked on every enqueue, on every received notification, and when the object starts, so a queue left over from before an eviction drains. `ChannelReceive` enqueues a Redemption of the Reward instead of only remembering its message ID. Tests: the parser over a table in `packages/domain/test`, the queue's order in `ChannelStore.test.ts`, and in `ChannelObject.test.ts` the four calls in order with their identifiers and headers, a burst of three acknowledged before any Spotify call and processed queue-then-chat each in arrival order, the link fallback under the 500-character limit, and the leftover queue draining on start and on the next notification; `EventSubRoutes.test.ts` runs a signed redemption notification through the receiver to the fake Spotify and Helix APIs. The fake Spotify Web API knows tracks by ID and answers queue adds; `FakeApi` learned `/*` endpoint keys for the track path; the harness exposes `settled`, which waits for every drain the Channel has started.

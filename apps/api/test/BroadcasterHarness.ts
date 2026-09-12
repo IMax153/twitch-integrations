@@ -32,6 +32,7 @@ import {
 import { Connections } from "../src/Connections.ts"
 import { ConnectionStore, type ConnectionStoreService } from "../src/ConnectionStore.ts"
 import { EventSubTransport } from "../src/EventSubTransport.ts"
+import { RedemptionQueue } from "../src/RedemptionQueue.ts"
 import type { RefreshAlarm } from "../src/RefreshAlarm.ts"
 import { BroadcasterHttp } from "../src/BroadcasterRoutes.ts"
 import { FakeProviders, type FakeProvidersService } from "./FakeProviders.ts"
@@ -106,6 +107,8 @@ export interface BroadcasterWorld {
   readonly channelStore: ChannelStoreService
   /** A new Channel object over the existing storage, as workerd builds one after an eviction. */
   readonly rebuildChannel: Effect.Effect<ChannelObjectShape>
+  /** Returns once the Channel has processed every Redemption it has queued so far. */
+  readonly settled: Effect.Effect<void>
 }
 
 /**
@@ -210,6 +213,7 @@ export const makeWorld = Effect.fnUntraced(function* (options: WorldOptions = {}
     channel,
     channelStore: Context.get(channelServices, ChannelStore),
     rebuildChannel,
+    settled: Context.get(channelServices, RedemptionQueue).settled,
   } satisfies BroadcasterWorld
 })
 

@@ -1,5 +1,6 @@
 import { ChannelState } from "@twitch-integrations/domain/ChannelState"
 import { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
+import { Redemption } from "@twitch-integrations/domain/Redemption"
 import { Reward } from "@twitch-integrations/domain/Reward"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -31,6 +32,12 @@ export interface ChannelStoreService {
   readonly recordNotification: (messageId: string, receivedAt: DateTime.Utc) => Effect.Effect<void>
   /** Forgets every Notification received before the cutoff. */
   readonly forgetNotificationsBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
+  /** Appends a Redemption to the processing queue; one already queued keeps its place. */
+  readonly enqueueRedemption: (redemption: Redemption) => Effect.Effect<void>
+  /** The Redemption that has waited longest in the processing queue, or none while it is empty. */
+  readonly nextRedemption: Effect.Effect<Option.Option<Redemption>>
+  /** Takes the Redemption with the ID out of the processing queue. */
+  readonly removeRedemption: (redemptionId: string) => Effect.Effect<void>
 }
 
 /**
@@ -48,6 +55,13 @@ const EventSubscriptionDocument = Schema.fromJsonString(EventSubscription).annot
 })
 const decodeEventSubscription = Schema.decodeEffect(EventSubscriptionDocument)
 const encodeEventSubscription = Schema.encodeEffect(EventSubscriptionDocument)
+
+/** Each queued Redemption is one JSON document in a row keyed by its Twitch ID, in arrival order. */
+const RedemptionDocument = Schema.fromJsonString(Redemption).annotate({
+  identifier: "RedemptionDocument",
+})
+const decodeRedemption = Schema.decodeEffect(RedemptionDocument)
+const encodeRedemption = Schema.encodeEffect(RedemptionDocument)
 
 const decodeState = Schema.decodeUnknownEffect(ChannelState)
 
@@ -87,6 +101,13 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
       CREATE TABLE IF NOT EXISTS seen_message (
         message_id TEXT PRIMARY KEY,
         received_at INTEGER NOT NULL
+      )
+    `
+  yield* sql`
+      CREATE TABLE IF NOT EXISTS redemption_queue (
+        position INTEGER PRIMARY KEY AUTOINCREMENT,
+        redemption_id TEXT NOT NULL UNIQUE,
+        document TEXT NOT NULL
       )
     `
 })
@@ -173,13 +194,38 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.orDie,
       ),
+
+    enqueueRedemption: Effect.fn("ChannelStore.enqueueRedemption")(function* (
+      redemption: Redemption,
+    ) {
+      const document = yield* encodeRedemption(redemption)
+      yield* sql`
+        INSERT INTO redemption_queue (redemption_id, document)
+        VALUES (${redemption.id}, ${document})
+        ON CONFLICT (redemption_id) DO NOTHING
+      `
+    }, Effect.orDie),
+
+    nextRedemption: Effect.gen(function* () {
+      const rows =
+        yield* sql<DocumentRow>`SELECT document FROM redemption_queue ORDER BY position LIMIT 1`
+      const row = rows[0]
+      return row === undefined ? Option.none() : Option.some(yield* decodeRedemption(row.document))
+    }).pipe(Effect.orDie),
+
+    removeRedemption: (redemptionId) =>
+      sql`DELETE FROM redemption_queue WHERE redemption_id = ${redemptionId}`.pipe(
+        Effect.asVoid,
+        Effect.orDie,
+      ),
   }
   return store
 })
 
 /**
  * Persistence for the Channel: its Reward, its state, its Event
- * Subscriptions, and the message IDs it has processed lately, written against the generic `SqlClient` so the same code
+ * Subscriptions, the message IDs it has processed lately, and the
+ * Redemptions waiting to be processed, written against the generic `SqlClient` so the same code
  * runs over Durable Object storage in production and over an in-memory
  * database in tests. As in the Connection store, storage failures and
  * malformed rows are defects.
