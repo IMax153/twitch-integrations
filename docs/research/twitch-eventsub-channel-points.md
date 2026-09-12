@@ -10,15 +10,15 @@ Every page below was fetched on 2026-09-11 with `curl` from the URLs in the Sour
 
 The Subscription Types table lists these entries [[types, table "Subscription Types"]](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/):
 
-| Subscription Type | Name | Version | Description (verbatim) |
-|---|---|---|---|
-| Channel Points Custom Reward Redemption Add | `channel.channel_points_custom_reward_redemption.add` | `1` | A viewer has redeemed a custom channel points reward on the specified channel. |
-| Channel Points Custom Reward Redemption Update | `channel.channel_points_custom_reward_redemption.update` | `1` | A redemption of a channel points custom reward has been updated for the specified channel. |
-| Channel Points Automatic Reward Redemption Add | `channel.channel_points_automatic_reward_redemption.add` | `1` | A viewer has redeemed an automatic channel points reward on the specified channel. |
-| Channel Points Automatic Reward Redemption Add V2 | `channel.channel_points_automatic_reward_redemption.add` | `2` | A viewer has redeemed an automatic channel points reward on the specified channel. |
-| Channel Points Custom Reward Add | `channel.channel_points_custom_reward.add` | `1` | A custom channel points reward has been created for the specified channel. |
-| Channel Points Custom Reward Update | `channel.channel_points_custom_reward.update` | `1` | A custom channel points reward has been updated for the specified channel. |
-| Channel Points Custom Reward Remove | `channel.channel_points_custom_reward.remove` | `1` | A custom channel points reward has been removed from the specified channel. |
+| Subscription Type                                 | Name                                                     | Version | Description (verbatim)                                                                     |
+| ------------------------------------------------- | -------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| Channel Points Custom Reward Redemption Add       | `channel.channel_points_custom_reward_redemption.add`    | `1`     | A viewer has redeemed a custom channel points reward on the specified channel.             |
+| Channel Points Custom Reward Redemption Update    | `channel.channel_points_custom_reward_redemption.update` | `1`     | A redemption of a channel points custom reward has been updated for the specified channel. |
+| Channel Points Automatic Reward Redemption Add    | `channel.channel_points_automatic_reward_redemption.add` | `1`     | A viewer has redeemed an automatic channel points reward on the specified channel.         |
+| Channel Points Automatic Reward Redemption Add V2 | `channel.channel_points_automatic_reward_redemption.add` | `2`     | A viewer has redeemed an automatic channel points reward on the specified channel.         |
+| Channel Points Custom Reward Add                  | `channel.channel_points_custom_reward.add`               | `1`     | A custom channel points reward has been created for the specified channel.                 |
+| Channel Points Custom Reward Update               | `channel.channel_points_custom_reward.update`            | `1`     | A custom channel points reward has been updated for the specified channel.                 |
+| Channel Points Custom Reward Remove               | `channel.channel_points_custom_reward.remove`            | `1`     | A custom channel points reward has been removed from the specified channel.                |
 
 Each of the seven channel points types above carries the same Authorization line: "Must have channel:read:redemptions or channel:manage:redemptions scope." [[types, sections "channel.channel_points_custom_reward_redemption.add" through "channel.channel_points_custom_reward.remove", each under "Authorization"]](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#channelchannel_points_custom_reward_redemptionadd)
 
@@ -30,34 +30,34 @@ Custom rewards are the rewards a broadcaster (or an app on the broadcaster's beh
 
 ### Condition objects
 
-| Subscription type | Field | Type | Required | Description (verbatim) |
-|---|---|---|---|---|
-| custom_reward_redemption.add | `broadcaster_user_id` | string | yes | The broadcaster user ID for the channel you want to receive channel points custom reward redemption add notifications for. |
-| custom_reward_redemption.add | `reward_id` | string | no | Optional. Specify a reward id to only receive notifications for a specific reward. |
-| custom_reward_redemption.update | `broadcaster_user_id` | string | yes | The broadcaster user ID for the channel you want to receive channel points custom reward redemption update notifications for. |
-| custom_reward_redemption.update | `reward_id` | string | no | Optional. Specify a reward id to only receive notifications for a specific reward. |
-| automatic_reward_redemption.add (v1 and v2) | `broadcaster_user_id` | string | yes | The broadcaster user ID for the channel you want to receive channel points reward add notifications for. |
-| custom_reward.add | `broadcaster_user_id` | string | yes | The broadcaster user ID for the channel you want to receive channel points custom reward add notifications for. |
-| custom_reward.update and .remove | `broadcaster_user_id` | string | yes | (as above, for update/remove notifications) |
-| custom_reward.update and .remove | `reward_id` | string | no | Optional. Specify a reward id to only receive notifications for a specific reward. |
+| Subscription type                           | Field                 | Type   | Required | Description (verbatim)                                                                                                        |
+| ------------------------------------------- | --------------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| custom_reward_redemption.add                | `broadcaster_user_id` | string | yes      | The broadcaster user ID for the channel you want to receive channel points custom reward redemption add notifications for.    |
+| custom_reward_redemption.add                | `reward_id`           | string | no       | Optional. Specify a reward id to only receive notifications for a specific reward.                                            |
+| custom_reward_redemption.update             | `broadcaster_user_id` | string | yes      | The broadcaster user ID for the channel you want to receive channel points custom reward redemption update notifications for. |
+| custom_reward_redemption.update             | `reward_id`           | string | no       | Optional. Specify a reward id to only receive notifications for a specific reward.                                            |
+| automatic_reward_redemption.add (v1 and v2) | `broadcaster_user_id` | string | yes      | The broadcaster user ID for the channel you want to receive channel points reward add notifications for.                      |
+| custom_reward.add                           | `broadcaster_user_id` | string | yes      | The broadcaster user ID for the channel you want to receive channel points custom reward add notifications for.               |
+| custom_reward.update and .remove            | `broadcaster_user_id` | string | yes      | (as above, for update/remove notifications)                                                                                   |
+| custom_reward.update and .remove            | `reward_id`           | string | no       | Optional. Specify a reward id to only receive notifications for a specific reward.                                            |
 
 Source: [[reference, "Conditions" section, entries "Channel Points Automatic Reward Redemption Add Condition", "Channel Points Automatic Reward Redemption Add V2 Condition", "Channel Points Custom Reward Add/Update/Remove Condition", "Channel Points Custom Reward Redemption Add/Update Condition"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#conditions). The automatic reward conditions have no `reward_id` field [[reference]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#conditions).
 
 ### Event payload: custom reward redemption add
 
-| Field | Type | Description (verbatim) |
-|---|---|---|
-| `id` | string | The redemption identifier. |
-| `broadcaster_user_id` | string | The requested broadcaster ID. |
-| `broadcaster_user_login` | string | The requested broadcaster login. |
-| `broadcaster_user_name` | string | The requested broadcaster display name. |
-| `user_id` | string | User ID of the user that redeemed the reward. |
-| `user_login` | string | Login of the user that redeemed the reward. |
-| `user_name` | string | Display name of the user that redeemed the reward. |
-| `user_input` | string | The user input provided. Empty string if not provided. |
-| `status` | string | Defaults to unfulfilled. Possible values are unknown, unfulfilled, fulfilled, and canceled. |
-| `redeemed_at` | string | RFC3339 timestamp of when the reward was redeemed. |
-| `reward` | reward | Basic information about the reward that was redeemed, at the time it was redeemed. |
+| Field                    | Type   | Description (verbatim)                                                                      |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------- |
+| `id`                     | string | The redemption identifier.                                                                  |
+| `broadcaster_user_id`    | string | The requested broadcaster ID.                                                               |
+| `broadcaster_user_login` | string | The requested broadcaster login.                                                            |
+| `broadcaster_user_name`  | string | The requested broadcaster display name.                                                     |
+| `user_id`                | string | User ID of the user that redeemed the reward.                                               |
+| `user_login`             | string | Login of the user that redeemed the reward.                                                 |
+| `user_name`              | string | Display name of the user that redeemed the reward.                                          |
+| `user_input`             | string | The user input provided. Empty string if not provided.                                      |
+| `status`                 | string | Defaults to unfulfilled. Possible values are unknown, unfulfilled, fulfilled, and canceled. |
+| `redeemed_at`            | string | RFC3339 timestamp of when the reward was redeemed.                                          |
+| `reward`                 | reward | Basic information about the reward that was redeemed, at the time it was redeemed.          |
 
 Source: [[reference, "Channel Points Custom Reward Redemption Add Event"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-points-custom-reward-redemption-add-event). The `reward` object has `id` ("The reward identifier."), `title` ("The reward name."), `cost` (integer, "The reward cost."), and `prompt` ("The reward description.") [[reference, "Reward"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#reward). The notification example on the subscription types page shows `"status": "unfulfilled"` and `"cost": 0` on the subscription object [[types, "Channel Points Custom Reward Redemption Add Notification Example"]](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#channelchannel_points_custom_reward_redemptionadd).
 
@@ -67,53 +67,53 @@ The update event has the same fields as the add event; its `status` description 
 
 ### Event payload: automatic reward redemption add, version 1
 
-| Field | Type | Description (verbatim) |
-|---|---|---|
-| `broadcaster_user_id` | string | The ID of the channel where the reward was redeemed. |
-| `broadcaster_user_login` | string | The login of the channel where the reward was redeemed. |
-| `broadcaster_user_name` | string | The display name of the channel where the reward was redeemed. |
-| `user_id` | string | The ID of the redeeming user. |
-| `user_login` | string | The login of the redeeming user. |
-| `user_name` | string | The display name of the redeeming user. |
-| `id` | string | The ID of the Redemption. |
-| `reward` | object | An object that contains the reward information. |
-| `reward.type` | string | The type of reward. One of: single_message_bypass_sub_mode, send_highlighted_message, random_sub_emote_unlock, chosen_sub_emote_unlock, chosen_modified_sub_emote_unlock, message_effect, gigantify_an_emote, celebration |
-| `reward.cost` | int | The reward cost. |
-| `reward.unlocked_emote` | object | Optional. Emote that was unlocked. |
-| `reward.unlocked_emote.id` | string | The emote ID. |
-| `reward.unlocked_emote.name` | string | The human readable emote token. |
-| `message` | Message | An object that contains the user message and emote information needed to recreate the message. |
-| `message.text` | string | The text of the chat message. |
-| `message.emotes` | object[] | An array that includes the emote ID and start and end positions for where the emote appears in the text. |
-| `message.emotes[].id` | string | The emote ID. |
-| `message.emotes[].begin` | int | The index of where the Emote starts in the text. |
-| `message.emotes[].end` | int | The index of where the Emote ends in the text. |
-| `user_input` | string | Optional. A string that the user entered if the reward requires input. |
-| `redeemed_at` | string | The UTC date and time (in RFC3339 format) of when the reward was redeemed. |
+| Field                        | Type     | Description (verbatim)                                                                                                                                                                                                    |
+| ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `broadcaster_user_id`        | string   | The ID of the channel where the reward was redeemed.                                                                                                                                                                      |
+| `broadcaster_user_login`     | string   | The login of the channel where the reward was redeemed.                                                                                                                                                                   |
+| `broadcaster_user_name`      | string   | The display name of the channel where the reward was redeemed.                                                                                                                                                            |
+| `user_id`                    | string   | The ID of the redeeming user.                                                                                                                                                                                             |
+| `user_login`                 | string   | The login of the redeeming user.                                                                                                                                                                                          |
+| `user_name`                  | string   | The display name of the redeeming user.                                                                                                                                                                                   |
+| `id`                         | string   | The ID of the Redemption.                                                                                                                                                                                                 |
+| `reward`                     | object   | An object that contains the reward information.                                                                                                                                                                           |
+| `reward.type`                | string   | The type of reward. One of: single_message_bypass_sub_mode, send_highlighted_message, random_sub_emote_unlock, chosen_sub_emote_unlock, chosen_modified_sub_emote_unlock, message_effect, gigantify_an_emote, celebration |
+| `reward.cost`                | int      | The reward cost.                                                                                                                                                                                                          |
+| `reward.unlocked_emote`      | object   | Optional. Emote that was unlocked.                                                                                                                                                                                        |
+| `reward.unlocked_emote.id`   | string   | The emote ID.                                                                                                                                                                                                             |
+| `reward.unlocked_emote.name` | string   | The human readable emote token.                                                                                                                                                                                           |
+| `message`                    | Message  | An object that contains the user message and emote information needed to recreate the message.                                                                                                                            |
+| `message.text`               | string   | The text of the chat message.                                                                                                                                                                                             |
+| `message.emotes`             | object[] | An array that includes the emote ID and start and end positions for where the emote appears in the text.                                                                                                                  |
+| `message.emotes[].id`        | string   | The emote ID.                                                                                                                                                                                                             |
+| `message.emotes[].begin`     | int      | The index of where the Emote starts in the text.                                                                                                                                                                          |
+| `message.emotes[].end`       | int      | The index of where the Emote ends in the text.                                                                                                                                                                            |
+| `user_input`                 | string   | Optional. A string that the user entered if the reward requires input.                                                                                                                                                    |
+| `redeemed_at`                | string   | The UTC date and time (in RFC3339 format) of when the reward was redeemed.                                                                                                                                                |
 
 Source: [[reference, "Channel Points Automatic Reward Redemption Add Event"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-points-automatic-reward-redemption-add-event).
 
 ### Event payload: automatic reward redemption add, version 2
 
-| Field | Type | Description (verbatim) |
-|---|---|---|
-| `broadcaster_user_id`, `broadcaster_user_login`, `broadcaster_user_name` | string | (same descriptions as v1) |
-| `user_id`, `user_login`, `user_name` | string | (same descriptions as v1) |
-| `id` | string | The ID of the Redemption. |
-| `reward` | object | An object that contains the reward information. |
-| `reward.type` | string | The type of reward. One of: single_message_bypass_sub_mode, send_highlighted_message, random_sub_emote_unlock, chosen_sub_emote_unlock, chosen_modified_sub_emote_unlock |
-| `reward.channel_points` | int | Number of channel points used. |
-| `reward.emote` | object | Optional. Emote associated with the reward. |
-| `reward.emote.id` | string | The emote ID. |
-| `reward.emote.name` | string | The human readable emote token. |
-| `message` | object | Optional. An object that contains the user message and emote information needed to recreate the message. |
-| `message.text` | string | The chat message in plain text. |
-| `message.fragments` | array | The ordered list of chat message fragments. |
-| `message.fragments[].text` | string | The message text in fragment. |
-| `message.fragments[].type` | string | The type of message fragment. Possible values are: text, emote |
-| `message.fragments[].emote` | object | Optional. The metadata pertaining to the emote. |
-| `message.fragments[].emote.id` | string | The ID that uniquely identifies this emote. |
-| `redeemed_at` | string | The UTC date and time (in RFC3339 format) of when the reward was redeemed. |
+| Field                                                                    | Type   | Description (verbatim)                                                                                                                                                   |
+| ------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `broadcaster_user_id`, `broadcaster_user_login`, `broadcaster_user_name` | string | (same descriptions as v1)                                                                                                                                                |
+| `user_id`, `user_login`, `user_name`                                     | string | (same descriptions as v1)                                                                                                                                                |
+| `id`                                                                     | string | The ID of the Redemption.                                                                                                                                                |
+| `reward`                                                                 | object | An object that contains the reward information.                                                                                                                          |
+| `reward.type`                                                            | string | The type of reward. One of: single_message_bypass_sub_mode, send_highlighted_message, random_sub_emote_unlock, chosen_sub_emote_unlock, chosen_modified_sub_emote_unlock |
+| `reward.channel_points`                                                  | int    | Number of channel points used.                                                                                                                                           |
+| `reward.emote`                                                           | object | Optional. Emote associated with the reward.                                                                                                                              |
+| `reward.emote.id`                                                        | string | The emote ID.                                                                                                                                                            |
+| `reward.emote.name`                                                      | string | The human readable emote token.                                                                                                                                          |
+| `message`                                                                | object | Optional. An object that contains the user message and emote information needed to recreate the message.                                                                 |
+| `message.text`                                                           | string | The chat message in plain text.                                                                                                                                          |
+| `message.fragments`                                                      | array  | The ordered list of chat message fragments.                                                                                                                              |
+| `message.fragments[].text`                                               | string | The message text in fragment.                                                                                                                                            |
+| `message.fragments[].type`                                               | string | The type of message fragment. Possible values are: text, emote                                                                                                           |
+| `message.fragments[].emote`                                              | object | Optional. The metadata pertaining to the emote.                                                                                                                          |
+| `message.fragments[].emote.id`                                           | string | The ID that uniquely identifies this emote.                                                                                                                              |
+| `redeemed_at`                                                            | string | The UTC date and time (in RFC3339 format) of when the reward was redeemed.                                                                                               |
 
 Source: [[reference, "Channel Points Automatic Reward Redemption Add V2 Event"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-points-automatic-reward-redemption-add-v2-event). Differences visible in the tables: v2 renames `reward.cost` to `reward.channel_points`, renames `reward.unlocked_emote` to `reward.emote`, replaces the `message.emotes` index array with `message.fragments`, drops the top-level `user_input` field, and lists fewer `reward.type` values (no `message_effect`, `gigantify_an_emote`, or `celebration`) [[reference]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#channel-points-automatic-reward-redemption-add-v2-event).
 
@@ -129,14 +129,14 @@ Twitch supports Webhook, WebSocket, and Conduits transports, and "EventSub subsc
 
 Subscriptions are created with `POST https://api.twitch.tv/helix/eventsub/subscriptions` and a body of `type`, `version`, `condition`, and `transport` [[api, "Create EventSub Subscription"]](https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription). The Transport object fields are [[reference, "Transport"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#transport):
 
-| Field | Required | Description (verbatim) |
-|---|---|---|
-| `method` | yes | The transport method. Possible values are: webhook, websocket |
-| `callback` | no | The callback URL where the notifications are sent. The URL must use the HTTPS protocol and port 443. See Processing an event. Specify this field only if method is set to webhook. NOTE: Redirects are not followed. |
-| `secret` | no | The secret used to verify the signature. The secret must be an ASCII string that's a minimum of 10 characters long and a maximum of 100 characters long. ... Specify this field only if method is set to webhook. |
-| `session_id` | no | An ID that identifies the WebSocket to send notifications to. When you connect to EventSub using WebSockets, the server returns the ID in the Welcome message. Specify this field only if method is set to websocket. |
-| `connected_at` | no | The UTC date and time that the WebSocket connection was established. This is a response-only field ... if the method field is set to websocket. |
-| `disconnected_at` | no | The UTC date and time that the WebSocket connection was lost. This is a response-only field that Get EventSub Subscription returns if the method field is set to websocket. |
+| Field             | Required | Description (verbatim)                                                                                                                                                                                                |
+| ----------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `method`          | yes      | The transport method. Possible values are: webhook, websocket                                                                                                                                                         |
+| `callback`        | no       | The callback URL where the notifications are sent. The URL must use the HTTPS protocol and port 443. See Processing an event. Specify this field only if method is set to webhook. NOTE: Redirects are not followed.  |
+| `secret`          | no       | The secret used to verify the signature. The secret must be an ASCII string that's a minimum of 10 characters long and a maximum of 100 characters long. ... Specify this field only if method is set to webhook.     |
+| `session_id`      | no       | An ID that identifies the WebSocket to send notifications to. When you connect to EventSub using WebSockets, the server returns the ID in the Welcome message. Specify this field only if method is set to websocket. |
+| `connected_at`    | no       | The UTC date and time that the WebSocket connection was established. This is a response-only field ... if the method field is set to websocket.                                                                       |
+| `disconnected_at` | no       | The UTC date and time that the WebSocket connection was lost. This is a response-only field that Get EventSub Subscription returns if the method field is set to websocket.                                           |
 
 The API reference adds `conduit` as a third `method` value and a `conduit_id` field [[api, "Create EventSub Subscription", "Request Body"]](https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription). A successful create returns 202 Accepted with `cost`, `total`, `total_cost`, and `max_total_cost` [[api, "Create EventSub Subscription", "Response Body" and "Response Codes"]](https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription). Get EventSub Subscriptions "Gets a list of EventSub subscriptions that the client in the access token created." and its `status`, `type`, `user_id`, `subscription_id`, and `conduit_id` filters "are mutually exclusive; the request fails if you specify more than one filter." [[api, "Get EventSub Subscriptions"]](https://dev.twitch.tv/docs/api/reference/#get-eventsub-subscriptions) Delete EventSub Subscription takes the `id` query parameter and returns 204 [[api, "Delete EventSub Subscription"]](https://dev.twitch.tv/docs/api/reference/#delete-eventsub-subscription). "Subscriptions do not expire, but Twitch may revoke them." [[webhook, "Revoking your subscription"]](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/#revoking-your-subscription)
 
@@ -150,23 +150,23 @@ Callback: "Before subscribing to events, you must create a callback that listens
 
 Message types, identified by the `Twitch-Eventsub-Message-Type` header [[webhook, intro table]](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/):
 
-| Type | Description (verbatim) |
-|---|---|
-| `notification` | Contains the event's data. See Processing an event. |
+| Type                            | Description (verbatim)                                                                                                                                                            |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `notification`                  | Contains the event's data. See Processing an event.                                                                                                                               |
 | `webhook_callback_verification` | Contains the challenge used to prove that you own the event handler. This is the first event you'll receive after subscribing to an event. See Responding to a challenge request. |
-| `revocation` | Contains the reason why Twitch revoked your subscription. See Revoking your subscription. |
+| `revocation`                    | Contains the reason why Twitch revoked your subscription. See Revoking your subscription.                                                                                         |
 
 Request headers [[webhook, "List of request headers"]](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/#list-of-request-headers):
 
-| Header | Description (verbatim) |
-|---|---|
-| `Twitch-Eventsub-Message-Id` | An ID that uniquely identifies this message. This is an opaque ID, and is not required to be in any particular format. |
-| `Twitch-Eventsub-Message-Retry` | Twitch sends you a notification at least once. If Twitch is unsure of whether you received a notification, it'll resend the event, which means you may receive a notification twice. If this is an issue for your implementation, see Handling duplicates for options. |
-| `Twitch-Eventsub-Message-Type` | The type of notification. Possible values are: notification, webhook_callback_verification, revocation. |
-| `Twitch-Eventsub-Message-Signature` | The HMAC signature that you use to verify that Twitch sent the message. See Verifying the event message. |
-| `Twitch-Eventsub-Message-Timestamp` | The UTC date and time (in RFC3339 format) that Twitch sent the notification. |
-| `Twitch-Eventsub-Subscription-Type` | The subscription type you subscribed to. For example, channel.follow. |
-| `Twitch-Eventsub-Subscription-Version` | The version number that identifies the definition of the subscription request. This version matches the version number that you specified in your subscription request. |
+| Header                                 | Description (verbatim)                                                                                                                                                                                                                                                 |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Twitch-Eventsub-Message-Id`           | An ID that uniquely identifies this message. This is an opaque ID, and is not required to be in any particular format.                                                                                                                                                 |
+| `Twitch-Eventsub-Message-Retry`        | Twitch sends you a notification at least once. If Twitch is unsure of whether you received a notification, it'll resend the event, which means you may receive a notification twice. If this is an issue for your implementation, see Handling duplicates for options. |
+| `Twitch-Eventsub-Message-Type`         | The type of notification. Possible values are: notification, webhook_callback_verification, revocation.                                                                                                                                                                |
+| `Twitch-Eventsub-Message-Signature`    | The HMAC signature that you use to verify that Twitch sent the message. See Verifying the event message.                                                                                                                                                               |
+| `Twitch-Eventsub-Message-Timestamp`    | The UTC date and time (in RFC3339 format) that Twitch sent the notification.                                                                                                                                                                                           |
+| `Twitch-Eventsub-Subscription-Type`    | The subscription type you subscribed to. For example, channel.follow.                                                                                                                                                                                                  |
+| `Twitch-Eventsub-Subscription-Version` | The version number that identifies the definition of the subscription request. This version matches the version number that you specified in your subscription request.                                                                                                |
 
 The page notes "Request header names are case-insensitive but some languages, like JavaScript, convert header names to lowercase regardless of how they were sent." [[webhook, "List of request headers"]](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/#list-of-request-headers)
 
@@ -192,13 +192,13 @@ Welcome: "The first message you receive after connecting to the server is a welc
 
 Message types (each frame has `metadata` with `message_id`, `message_type`, `message_timestamp`, and for notification and revocation `subscription_type` and `subscription_version`, plus a `payload`) [[websocket, "Migrating from using webhooks to using WebSockets", "Headers" and "Payload"]](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/#migrating-from-using-webhooks-to-using-websockets):
 
-| `message_type` | Meaning (verbatim where quoted) |
-|---|---|
-| `session_welcome` | Welcome message with the session ID. |
+| `message_type`      | Meaning (verbatim where quoted)                                                                                                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_welcome`   | Welcome message with the session ID.                                                                                                                                                                                                    |
 | `session_keepalive` | "The keepalive messages indicate that the WebSocket connection is healthy. The server sends this message if Twitch doesn't deliver an event notification within the keepalive_timeout_seconds window specified in the Welcome message." |
-| `notification` | "A notification message is sent when an event that you subscribe to occurs." Payload holds the same `subscription` and `event` objects as webhooks. |
-| `session_reconnect` | "A reconnect message is sent if the edge server that the client is connected to needs to be swapped. This message is sent 30 seconds prior to closing the connection, specifying a new URL for the client to connect to." |
-| `revocation` | "A revocation message is sent if Twitch revokes a subscription." |
+| `notification`      | "A notification message is sent when an event that you subscribe to occurs." Payload holds the same `subscription` and `event` objects as webhooks.                                                                                     |
+| `session_reconnect` | "A reconnect message is sent if the edge server that the client is connected to needs to be swapped. This message is sent 30 seconds prior to closing the connection, specifying a new URL for the client to connect to."               |
+| `revocation`        | "A revocation message is sent if Twitch revokes a subscription."                                                                                                                                                                        |
 
 Sources: [[websocket, "Keepalive message", "Notification message", "Reconnect message", "Revocation message"]](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/). There is no signature and no retry header on WebSockets ("No equivalent") [[websocket, "Headers" table]](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/#migrating-from-using-webhooks-to-using-websockets).
 
@@ -212,16 +212,16 @@ Revocation reasons on WebSockets: `user_removed`, `authorization_revoked`, `vers
 
 Close codes [[websocket, "Close message"]](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/#close-message):
 
-| Code | Reason | Notes (verbatim) |
-|---|---|---|
-| 4000 | Internal server error | Indicates a problem with the server (similar to an HTTP 500 status code). |
-| 4001 | Client sent inbound traffic | Sending outgoing messages to the server is prohibited with the exception of pong messages. |
-| 4002 | Client failed ping-pong | You must respond to ping messages with a pong message. See Ping message. |
-| 4003 | Connection unused | When you connect to the server, you must create a subscription within 10 seconds or the connection is closed. The time limit is subject to change. |
-| 4004 | Reconnect grace time expired | When you receive a session_reconnect message, you have 30 seconds to reconnect to the server and close the old connection. See Reconnect message. |
-| 4005 | Network timeout | Transient network timeout. |
-| 4006 | Network error | Transient network error. |
-| 4007 | Invalid reconnect | The reconnect URL is invalid. |
+| Code | Reason                       | Notes (verbatim)                                                                                                                                   |
+| ---- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4000 | Internal server error        | Indicates a problem with the server (similar to an HTTP 500 status code).                                                                          |
+| 4001 | Client sent inbound traffic  | Sending outgoing messages to the server is prohibited with the exception of pong messages.                                                         |
+| 4002 | Client failed ping-pong      | You must respond to ping messages with a pong message. See Ping message.                                                                           |
+| 4003 | Connection unused            | When you connect to the server, you must create a subscription within 10 seconds or the connection is closed. The time limit is subject to change. |
+| 4004 | Reconnect grace time expired | When you receive a session_reconnect message, you have 30 seconds to reconnect to the server and close the old connection. See Reconnect message.  |
+| 4005 | Network timeout              | Transient network timeout.                                                                                                                         |
+| 4006 | Network error                | Transient network error.                                                                                                                           |
+| 4007 | Invalid reconnect            | The reconnect URL is invalid.                                                                                                                      |
 
 Limits, "per user token (client ID and user ID tuple)": "You can create a maximum of 3 WebSockets connections with enabled subscriptions."; "Reconnecting using a reconnection URL ... doesn't add to your WebSocket count."; "Each WebSocket connection may create a maximum of 300 enabled subscriptions (disabled subscriptions don't count against the limit)."; "The max_total_cost is 10 across all subscriptions." [[websocket, "Subscription limits"]](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/#subscription-limits)
 
@@ -233,15 +233,15 @@ The following is reasoning about this deployment, not a Twitch statement. A webh
 
 Update Redemption Status: "Updates a redemption's status. You may update a redemption only if its status is UNFULFILLED. The app used to create the reward is the only app that may update the redemption." It "Requires a user access token that includes the channel:manage:redemptions scope." and is `PATCH https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions` [[api, "Update Redemption Status"]](https://dev.twitch.tv/docs/api/reference/#update-redemption-status).
 
-| Query parameter | Required | Description (verbatim) |
-|---|---|---|
-| `id` | yes | A list of IDs that identify the redemptions to update. To specify more than one ID, include this parameter for each redemption you want to update. For example, id=1234&id=5678. You may specify a maximum of 50 IDs. |
-| `broadcaster_id` | yes | The ID of the broadcaster that's updating the redemption. This ID must match the user ID in the user access token. |
-| `reward_id` | yes | The ID that identifies the reward that's been redeemed. |
+| Query parameter  | Required | Description (verbatim)                                                                                                                                                                                                |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | yes      | A list of IDs that identify the redemptions to update. To specify more than one ID, include this parameter for each redemption you want to update. For example, id=1234&id=5678. You may specify a maximum of 50 IDs. |
+| `broadcaster_id` | yes      | The ID of the broadcaster that's updating the redemption. This ID must match the user ID in the user access token.                                                                                                    |
+| `reward_id`      | yes      | The ID that identifies the reward that's been redeemed.                                                                                                                                                               |
 
-| Body field | Required | Description (verbatim) |
-|---|---|---|
-| `status` | yes | The status to set the redemption to. Possible values are: CANCELED, FULFILLED. Setting the status to CANCELED refunds the user's channel points. |
+| Body field | Required | Description (verbatim)                                                                                                                           |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`   | yes      | The status to set the redemption to. Possible values are: CANCELED, FULFILLED. Setting the status to CANCELED refunds the user's channel points. |
 
 Source: [[api, "Update Redemption Status", "Request Query Parameters" and "Request Body"]](https://dev.twitch.tv/docs/api/reference/#update-redemption-status). The response `data` array "contains the single redemption that you updated" with `status` one of CANCELED, FULFILLED, UNFULFILLED, plus `reward` {id, title, prompt, cost}, `user_input`, and `redeemed_at` [[api, "Update Redemption Status", "Response Body"]](https://dev.twitch.tv/docs/api/reference/#update-redemption-status). Response codes include 403 Forbidden for "The ID in the Client-Id header must match the client ID used to create the custom reward." and "The broadcaster is not a partner or affiliate.", and 404 Not Found for "The redemptions specified using the id query parameter were not found or their statuses weren't marked as UNFULFILLED." [[api, "Update Redemption Status", "Response Codes"]](https://dev.twitch.tv/docs/api/reference/#update-redemption-status)
 
@@ -251,15 +251,15 @@ Rewards not created by the app: the same-client restriction is stated for every 
 
 Get Custom Reward Redemption: `GET https://api.twitch.tv/helix/channel_points/custom_rewards/redemptions`, "Requires a user access token that includes the channel:read:redemptions or channel:manage:redemptions scope." [[api, "Get Custom Reward Redemption"]](https://dev.twitch.tv/docs/api/reference/#get-custom-reward-redemption)
 
-| Query parameter | Required | Description (verbatim, abridged where marked) |
-|---|---|---|
-| `broadcaster_id` | yes | The ID of the broadcaster that owns the custom reward. This ID must match the user ID found in the user OAuth token. |
-| `reward_id` | yes | The ID that identifies the custom reward whose redemptions you want to get. |
-| `status` | yes | The status of the redemptions to return. The possible case-sensitive values are: CANCELED, FULFILLED, UNFULFILLED. NOTE: This field is required only if you don't specify the id query parameter. NOTE: Canceled and fulfilled redemptions are returned for only a few days after they're canceled or fulfilled. |
-| `id` | no | A list of IDs to filter the redemptions by. ... You may specify a maximum of 50 IDs. ... If none of the IDs were found, the response is 404 Not Found. |
-| `sort` | no | OLDEST or NEWEST. The default is OLDEST. |
-| `after` | no | Pagination cursor. |
-| `first` | no | The minimum page size is 1 redemption per page and the maximum is 50. The default is 20. |
+| Query parameter  | Required | Description (verbatim, abridged where marked)                                                                                                                                                                                                                                                                    |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `broadcaster_id` | yes      | The ID of the broadcaster that owns the custom reward. This ID must match the user ID found in the user OAuth token.                                                                                                                                                                                             |
+| `reward_id`      | yes      | The ID that identifies the custom reward whose redemptions you want to get.                                                                                                                                                                                                                                      |
+| `status`         | yes      | The status of the redemptions to return. The possible case-sensitive values are: CANCELED, FULFILLED, UNFULFILLED. NOTE: This field is required only if you don't specify the id query parameter. NOTE: Canceled and fulfilled redemptions are returned for only a few days after they're canceled or fulfilled. |
+| `id`             | no       | A list of IDs to filter the redemptions by. ... You may specify a maximum of 50 IDs. ... If none of the IDs were found, the response is 404 Not Found.                                                                                                                                                           |
+| `sort`           | no       | OLDEST or NEWEST. The default is OLDEST.                                                                                                                                                                                                                                                                         |
+| `after`          | no       | Pagination cursor.                                                                                                                                                                                                                                                                                               |
+| `first`          | no       | The minimum page size is 1 redemption per page and the maximum is 50. The default is 20.                                                                                                                                                                                                                         |
 
 Source: [[api, "Get Custom Reward Redemption", "Request Query Parameters"]](https://dev.twitch.tv/docs/api/reference/#get-custom-reward-redemption).
 
@@ -273,23 +273,23 @@ Condition for both: `broadcaster_user_id` (string, required), "The broadcaster u
 
 Stream Online Event [[reference, "Stream Online Event"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#stream-online-event):
 
-| Field | Type | Description (verbatim) |
-|---|---|---|
-| `id` | string | The id of the stream. |
-| `broadcaster_user_id` | string | The broadcaster's user id. |
-| `broadcaster_user_login` | string | The broadcaster's user login. |
-| `broadcaster_user_name` | string | The broadcaster's user display name. |
-| `type` | string | The stream type. Valid values are: live, playlist, watch_party, premiere, rerun. |
-| `started_at` | string | The timestamp at which the stream went online at. |
+| Field                    | Type   | Description (verbatim)                                                           |
+| ------------------------ | ------ | -------------------------------------------------------------------------------- |
+| `id`                     | string | The id of the stream.                                                            |
+| `broadcaster_user_id`    | string | The broadcaster's user id.                                                       |
+| `broadcaster_user_login` | string | The broadcaster's user login.                                                    |
+| `broadcaster_user_name`  | string | The broadcaster's user display name.                                             |
+| `type`                   | string | The stream type. Valid values are: live, playlist, watch_party, premiere, rerun. |
+| `started_at`             | string | The timestamp at which the stream went online at.                                |
 
 Stream Offline Event [[reference, "Stream Offline Event"]](https://dev.twitch.tv/docs/eventsub/eventsub-reference/#stream-offline-event):
 
-| Field | Type | Description (verbatim) |
-|---|---|---|
-| `id` | string | The id of the stream. |
-| `broadcaster_user_id` | string | The broadcaster's user id. |
-| `broadcaster_user_login` | string | The broadcaster's user login. |
-| `broadcaster_user_name` | string | The broadcaster's user display name. |
+| Field                    | Type   | Description (verbatim)               |
+| ------------------------ | ------ | ------------------------------------ |
+| `id`                     | string | The id of the stream.                |
+| `broadcaster_user_id`    | string | The broadcaster's user id.           |
+| `broadcaster_user_login` | string | The broadcaster's user login.        |
+| `broadcaster_user_name`  | string | The broadcaster's user display name. |
 
 Cost: `stream.online` is named as an example of a subscription that costs 1 unless the broadcaster has authorized the app, in which case it costs 0 [[manage, "Subscription limits"]](https://dev.twitch.tv/docs/eventsub/manage-subscriptions/#subscription-limits). Token: the webhook create call still uses an app access token because that is a transport rule, not a subscription-type rule [[manage, "Authorization"]](https://dev.twitch.tv/docs/eventsub/manage-subscriptions/#authorization); on WebSockets a user token with no scope is acceptable for these types ("If the event doesn't specify a scope requirement, you must create a user access token with no scope.") [[manage, "Authorization"]](https://dev.twitch.tv/docs/eventsub/manage-subscriptions/#authorization).
 
