@@ -4,7 +4,12 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
-import { redemptionOf, songRequestReward, storedSubscriptions } from "./fixtures.ts"
+import {
+  heldRedemptionOf,
+  redemptionOf,
+  songRequestReward,
+  storedSubscriptions,
+} from "./fixtures.ts"
 
 /** A fresh in-memory database per test, running the real store over it. */
 const storeLayer = ChannelStore.layer.pipe(
@@ -99,6 +104,42 @@ describe("ChannelStore processing queue", () => {
         assert.deepStrictEqual(yield* store.nextRedemption, Option.some(redemption("redemption-2")))
         yield* store.removeRedemption("redemption-2")
         assert.deepStrictEqual(yield* store.nextRedemption, Option.none())
+      }),
+    ),
+  )
+})
+
+describe("ChannelStore held Redemptions", () => {
+  const held = (id: string) => heldRedemptionOf(id, `spotify:track:${id}`)
+
+  it.effect("hands held Redemptions back in arrival order and forgets each once released", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [])
+        yield* store.holdRedemption(held("redemption-2"))
+        yield* store.holdRedemption(held("redemption-1"))
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [
+          held("redemption-2"),
+          held("redemption-1"),
+        ])
+        yield* store.releaseHeldRedemption("redemption-2")
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [held("redemption-1")])
+        yield* store.releaseHeldRedemption("redemption-1")
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [])
+      }),
+    ),
+  )
+
+  it.effect("keeps a Redemption held twice once, in its first position", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.holdRedemption(held("redemption-1"))
+        yield* store.holdRedemption(held("redemption-2"))
+        yield* store.holdRedemption(held("redemption-1"))
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [
+          held("redemption-1"),
+          held("redemption-2"),
+        ])
       }),
     ),
   )

@@ -3,7 +3,7 @@ import type { Connection } from "@twitch-integrations/domain/Connection"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
-import type { Redemption } from "@twitch-integrations/domain/Redemption"
+import type { HeldRedemption, Redemption } from "@twitch-integrations/domain/Redemption"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -123,6 +123,12 @@ export const redemptionOf = (
   viewerName: "viewer",
   input,
   redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
+})
+
+/** A Redemption of the Reward held while Twitch could not be reached, with the input the viewer typed. */
+export const heldRedemptionOf = (id: string, input: string): HeldRedemption => ({
+  redemption: redemptionOf("reward-1", input, id),
+  reason: "TwitchUnavailable",
 })
 
 /** The one track the tests request most, by its Spotify ID. */
