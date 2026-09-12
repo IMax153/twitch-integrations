@@ -26,11 +26,31 @@ export type HelixOperation =
 /**
  * A Helix call failed. Carries only what the failure was, never the request
  * or response: those hold the access token, and this error may be logged.
+ * Twitch's own account of a refused request, such as
+ * `CREATE_CUSTOM_REWARD_DUPLICATE_REWARD`, is kept when it gave one.
  */
 export class HelixRequestFailed extends Data.TaggedError("HelixRequestFailed")<{
   readonly operation: HelixOperation
   readonly reason: ProviderFailureReason
+  /** Twitch's own account of a refusal, when it gave one. */
+  readonly detail?: string
 }> {}
+
+/** The one field of a Helix error body worth keeping: Twitch's account of the refusal, which names no secret. */
+const HelixError = Schema.Struct({ message: Schema.String }).annotate({ identifier: "HelixError" })
+
+const readHelixError = HttpClientResponse.schemaBodyJson(HelixError)
+
+/** Twitch's message for a refused request, or none when the failure was not a refusal or carried no message. */
+const helixMessage = (
+  cause: HttpClientError.HttpClientError | Schema.SchemaError,
+): Effect.Effect<Option.Option<string>> =>
+  cause._tag === "HttpClientError" && cause.reason._tag === "StatusCodeError"
+    ? readHelixError(cause.reason.response).pipe(
+        Effect.map((body) => Option.some(body.message)),
+        Effect.orElseSucceed(Option.none),
+      )
+    : Effect.succeed(Option.none())
 
 /** An Event Subscription as Helix reports it. */
 export interface HelixEventSubscription {
@@ -190,15 +210,26 @@ const make = Effect.gen(function* () {
   const clientId = (yield* ProviderCredentials).twitch.clientId
   const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
 
-  /** Names the operation a transport or body failure belongs to; a failure already named passes through. */
+  /** Names the operation a transport, refusal, or body failure belongs to; a failure already named passes through. */
   const failed =
     (operation: HelixOperation) =>
     (
       cause: HttpClientError.HttpClientError | Schema.SchemaError | HelixRequestFailed,
-    ): HelixRequestFailed =>
+    ): Effect.Effect<never, HelixRequestFailed> =>
       cause._tag === "HelixRequestFailed"
-        ? cause
-        : new HelixRequestFailed({ operation, reason: failureReason(cause) })
+        ? Effect.fail(cause)
+        : Effect.flatMap(helixMessage(cause), (detail) =>
+            Effect.fail(
+              new HelixRequestFailed({
+                operation,
+                reason: failureReason(cause),
+                ...Option.match(detail, {
+                  onNone: () => ({}),
+                  onSome: (detail) => ({ detail }),
+                }),
+              }),
+            ),
+          )
 
   /** Every Helix request carries the client ID and the token as a bearer. */
   const authorized = (token: AccessToken) => (request: HttpClientRequest.HttpClientRequest) =>
@@ -220,7 +251,7 @@ const make = Effect.gen(function* () {
         const response = yield* readRewards(yield* client.execute(request))
         return response.data.map(rewardOf)
       },
-      Effect.mapError(failed("list rewards")),
+      Effect.catch(failed("list rewards")),
     ),
 
     createReward: Effect.fn("Helix.createReward")(
@@ -233,7 +264,7 @@ const make = Effect.gen(function* () {
         const response = yield* readRewards(yield* client.execute(request))
         return rewardOf(yield* single("create reward")(response))
       },
-      Effect.mapError(failed("create reward")),
+      Effect.catch(failed("create reward")),
     ),
 
     updateReward: Effect.fn("Helix.updateReward")(
@@ -251,7 +282,7 @@ const make = Effect.gen(function* () {
         const response = yield* readRewards(yield* client.execute(request))
         return rewardOf(yield* single("update reward")(response))
       },
-      Effect.mapError(failed("update reward")),
+      Effect.catch(failed("update reward")),
     ),
 
     listEventSubscriptions: (appToken) => {
@@ -275,7 +306,7 @@ const make = Effect.gen(function* () {
           const next = page.pagination?.cursor
           return next === undefined ? Effect.succeed(all) : collect(next, all)
         })
-      return collect(undefined, []).pipe(Effect.mapError(failed("list subscriptions")))
+      return collect(undefined, []).pipe(Effect.catch(failed("list subscriptions")))
     },
 
     createEventSubscription: Effect.fn("Helix.createEventSubscription")(
@@ -300,7 +331,7 @@ const make = Effect.gen(function* () {
         const response = yield* readEventSubscriptions(yield* client.execute(request))
         return yield* single("create subscription")(response)
       },
-      Effect.mapError(failed("create subscription")),
+      Effect.catch(failed("create subscription")),
     ),
 
     deleteEventSubscription: (appToken, id) =>
@@ -309,7 +340,7 @@ const make = Effect.gen(function* () {
         authorized(appToken),
         client.execute,
         Effect.asVoid,
-        Effect.mapError(failed("delete subscription")),
+        Effect.catch(failed("delete subscription")),
       ),
 
     isLive: Effect.fn("Helix.isLive")(
@@ -321,7 +352,7 @@ const make = Effect.gen(function* () {
         const response = yield* readStreams(yield* client.execute(request))
         return response.data.some((stream) => stream.type === "live")
       },
-      Effect.mapError(failed("get stream")),
+      Effect.catch(failed("get stream")),
     ),
   }
   return service

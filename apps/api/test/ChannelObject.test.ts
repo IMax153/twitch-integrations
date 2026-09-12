@@ -18,6 +18,7 @@ import {
   makeWorld,
   testTransport,
 } from "./BroadcasterHarness.ts"
+import { HelixRequestFailed } from "../src/Helix.ts"
 import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
 import {
@@ -330,6 +331,24 @@ describe("ChannelObject.reconcile", () => {
         Option.map(yield* world.channelStore.readReward, (reward) => reward.isPaused),
         Option.some(true),
       )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("reports Twitch's reason when it refuses to create the Reward", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithTwitch({
+        rewardCreateRefusal: { status: 400, message: "CREATE_CUSTOM_REWARD_DUPLICATE_REWARD" },
+      })
+      const failure = yield* Effect.flip(world.channel.reconcile())
+      assert.deepStrictEqual(
+        failure,
+        new HelixRequestFailed({
+          operation: "create reward",
+          reason: { _tag: "Status", status: 400 },
+          detail: "CREATE_CUSTOM_REWARD_DUPLICATE_REWARD",
+        }),
+      )
+      assert.deepStrictEqual(yield* world.channelStore.readReward, Option.none())
     }).pipe(Effect.scoped),
   )
 
