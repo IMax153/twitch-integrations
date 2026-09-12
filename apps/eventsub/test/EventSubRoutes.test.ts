@@ -66,7 +66,8 @@ interface MessageHeaders {
   readonly signature: string
 }
 
-interface SignedMessage {
+/** A message the test sends as Twitch, before it is signed. */
+interface OutgoingMessage {
   readonly type: string
   readonly body: string
   /** Headers to send instead of the ones the message would carry; `undefined` omits one. */
@@ -89,7 +90,7 @@ const headerNames: Record<keyof MessageHeaders, string> = {
 let nextMessageId = 0
 
 /** A webhook message as Twitch would send it, signed with the configured secret, dated by the test clock. */
-const signedRequest = (message: SignedMessage): Effect.Effect<Request> =>
+const signedRequest = (message: OutgoingMessage): Effect.Effect<Request> =>
   Effect.gen(function* () {
     const now = yield* DateTime.now
     const sentAt = message.age === undefined ? now : DateTime.subtractDuration(now, message.age)
@@ -169,6 +170,35 @@ describe("the receiver", () => {
         type: "webhook_callback_verification",
         body: challengeBody("hello"),
         headers: { signature: undefined },
+      })
+      yield* assertEmpty(yield* send(request), 403)
+    }),
+  )
+
+  it.effect("refuses a message with no timestamp", () =>
+    Effect.gen(function* () {
+      const request = yield* signedRequest({
+        type: "webhook_callback_verification",
+        body: challengeBody("hello"),
+        headers: { timestamp: undefined },
+      })
+      yield* assertEmpty(yield* send(request), 403)
+    }),
+  )
+
+  it.effect("refuses a correct digest that lacks Twitch's algorithm prefix", () =>
+    Effect.gen(function* () {
+      const body = challengeBody("hello")
+      const id = "message-unprefixed"
+      const timestamp = DateTime.formatIso(yield* DateTime.now)
+      const request = yield* signedRequest({
+        type: "webhook_callback_verification",
+        body,
+        headers: {
+          id,
+          timestamp,
+          signature: sign(secret, id, timestamp, body).slice("sha256=".length),
+        },
       })
       yield* assertEmpty(yield* send(request), 403)
     }),

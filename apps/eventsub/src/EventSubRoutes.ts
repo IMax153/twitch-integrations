@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema"
 import * as Headers from "effect/unstable/http/Headers"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { makeVerifier } from "./Signature.ts"
+import { makeVerifier, type SignedMessage } from "./Signature.ts"
 import { WebhookSecret } from "./WebhookSecret.ts"
 
 /** The one path Twitch delivers to; every other path and method gets an empty 404. */
@@ -46,40 +46,36 @@ const isFresh = (timestamp: string): Effect.Effect<boolean> =>
   })
 
 /** The one field of a verification message the receiver needs: the value Twitch wants echoed back. */
-const Challenge = Schema.fromJsonString(Schema.Struct({ challenge: Schema.String })).pipe(
-  Schema.decodeUnknownOption,
-)
+const Challenge = Schema.Struct({ challenge: Schema.String }).annotate({ identifier: "Challenge" })
+
+const decodeChallenge = Schema.decodeUnknownOption(Schema.fromJsonString(Challenge))
 
 /**
  * Twitch's verification message, answered with the raw challenge and
  * nothing else: no JSON encoding, no whitespace, as `text/plain`.
  */
 const answerChallenge = (body: string) =>
-  Option.match(Challenge(body), {
+  Option.match(decodeChallenge(body), {
     onNone: () => badRequest,
     onSome: ({ challenge }) => HttpServerResponse.text(challenge),
   })
 
-/** What the signature covers, plus the signature Twitch sent for it. */
-interface SignedHeaders {
-  readonly messageId: string
-  readonly timestamp: string
-  readonly signature: string
-}
-
-/** The signed headers, or none when any is missing; Twitch sends all three on every message. */
-const readSignedHeaders = (headers: Headers.Headers): Option.Option<SignedHeaders> =>
+/** The signed message's headers, or none when any is missing; Twitch sends all three on every message. */
+const readSignedHeaders = (headers: Headers.Headers): Option.Option<Omit<SignedMessage, "body">> =>
   Option.all({
     messageId: Headers.get(headers, "twitch-eventsub-message-id"),
     timestamp: Headers.get(headers, "twitch-eventsub-message-timestamp"),
     signature: Headers.get(headers, "twitch-eventsub-message-signature"),
   })
 
-/** The declared body size, or none when the request declares none. */
-const declaredLength = (headers: Headers.Headers): number | undefined => {
-  const raw = Headers.get(headers, "content-length")
-  return Option.isNone(raw) ? undefined : Number(raw.value)
-}
+const decimal = /^\d+$/
+
+/** The declared body size, or none when the request declares none or declares nonsense. */
+const declaredLength = (headers: Headers.Headers): Option.Option<number> =>
+  Headers.get(headers, "content-length").pipe(
+    Option.filter((raw) => decimal.test(raw)),
+    Option.map(Number),
+  )
 
 /** The Worker's HTTP handler, built once over the configured secret. */
 export const EventSubHttp = Effect.flatMap(WebhookSecret, makeVerifier).pipe(
@@ -93,7 +89,7 @@ export const EventSubHttp = Effect.flatMap(WebhookSecret, makeVerifier).pipe(
         return notFound
       }
       const length = declaredLength(request.headers)
-      if (length !== undefined && length > maxBodyBytes) {
+      if (Option.isSome(length) && length.value > maxBodyBytes) {
         return tooLarge
       }
       const signed = readSignedHeaders(request.headers)
