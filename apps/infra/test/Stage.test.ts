@@ -4,11 +4,19 @@ import * as Effect from "effect/Effect"
 import { Stage } from "alchemy"
 import { guardStage } from "../src/Stage.ts"
 
-/** Runs the guard under the given stage, with `ALCHEMY_DEV` set when asked, and reports whether it let the stack run. */
+/**
+ * Runs the guard under the given stage, with `ALCHEMY_DEV` set when asked,
+ * and reports whether it let the stack run. Only the guard's own refusal
+ * counts as a refusal; any other defect escapes and fails the test.
+ */
 const admits = (stage: string, options: { readonly dev: boolean } = { dev: false }) =>
   guardStage.pipe(
     Effect.as(true),
-    Effect.catchDefect(() => Effect.succeed(false)),
+    Effect.catchDefect((defect) =>
+      defect instanceof Error && defect.message.startsWith(`Refusing stage "${stage}"`)
+        ? Effect.succeed(false)
+        : Effect.die(defect),
+    ),
     Effect.provideService(Stage, stage),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ ALCHEMY_DEV: String(options.dev) })),
@@ -29,7 +37,7 @@ describe("guardStage", () => {
     }),
   )
 
-  it.effect("admits Alchemy's placeholder stage, which the state and logs commands run under", () =>
+  it.effect("admits Alchemy's placeholder stage, which the state commands run under", () =>
     Effect.gen(function* () {
       assert.isTrue(yield* admits("placeholder"))
     }),

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 /** The one stage that is ever deployed; every deploy targets it. */
 export const productionStage = "production"
 
-/** The prefix Alchemy gives per-user dev stages, the only other stages the stack runs under. */
+/** The prefix Alchemy gives per-user dev stages, the only stages `alchemy dev` runs under. */
 const devStagePrefix = "dev_"
 
 /**
@@ -32,7 +32,7 @@ export const guardStage: Effect.Effect<void, never, Stage> = Effect.gen(function
   if (!allowed) {
     return yield* Effect.die(
       new Error(
-        `Refusing stage "${stage}": deploys target "${productionStage}" and alchemy dev runs under a "${devStagePrefix}" stage.`,
+        `Refusing stage "${stage}": deploys target "${productionStage}", alchemy dev runs under a "${devStagePrefix}" stage, and only Alchemy's non-deploying commands run under "${placeholderStage}".`,
       ),
     )
   }
