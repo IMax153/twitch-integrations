@@ -1,7 +1,7 @@
 import { Channel, channelName } from "@twitch-integrations/api/Channel"
 import { ChannelObject } from "@twitch-integrations/api/ChannelObject"
 import { ApiWorker } from "@twitch-integrations/api/Worker"
-import { broadcasterRoute, devHost } from "@twitch-integrations/infra/Domain"
+import { broadcasterRoute, devHost, eventSubRoutePrefix } from "@twitch-integrations/infra/Domain"
 import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -42,7 +42,7 @@ export default class EventSubWorker extends Cloudflare.Worker<EventSubWorker>()(
   "EventSub",
   Effect.succeed({
     main: import.meta.url,
-    routes: [broadcasterRoute("/eventsub*")],
+    routes: [broadcasterRoute(`${eventSubRoutePrefix}*`)],
     workersDev: false,
     dev: { host: devHost, port: devPort, strictPort: true },
   }),
