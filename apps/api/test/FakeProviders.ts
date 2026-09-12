@@ -96,7 +96,18 @@ export interface TwitchHelixScenario extends WithLatency {
   readonly eventSubscriptions?: ReadonlyArray<HelixEventSubscriptionRecord>
   /** Whether Get Streams reports the Broadcaster live. */
   readonly live?: boolean
+  /** What becomes of a chat message: shown unless the test says Twitch refuses the send or drops the message. */
+  readonly chatSend?: ChatSendAnswer
+  /** How many Redemption updates, to either status, Helix refuses with a 500 before accepting one; every one when Infinity. */
+  readonly redemptionUpdateRefusals?: number
 }
+
+/** How Helix answers a chat send other than by showing the message. */
+export type ChatSendAnswer =
+  /** The request is refused with the status. */
+  | { readonly _tag: "Refused"; readonly status: number }
+  /** The request succeeds but the message is not shown, with Twitch's drop reason. */
+  | { readonly _tag: "Dropped"; readonly code: string; readonly message: string }
 
 /** How Spotify's accounts host answers a token request. */
 export interface SpotifyAccountsScenario extends WithLatency {
@@ -112,6 +123,15 @@ export interface SpotifyWebScenario extends WithLatency {
   readonly accessToken: Option.Option<string>
   readonly account: ConnectedAccount
   readonly tracks?: Readonly<Record<string, Track>>
+  /** How the player refuses a queue add, when it does: Spotify's status and message, with its reason code for a player refusal. */
+  readonly queueRefusal?: SpotifyRefusal
+}
+
+/** A Spotify Web API refusal as Spotify words it, with the reason code its player endpoints add. */
+export interface SpotifyRefusal {
+  readonly status: number
+  readonly message: string
+  readonly reason?: string
 }
 
 export interface FakeProvidersService {
@@ -235,10 +255,10 @@ const twitchAppToken = tokenEndpoint<{ readonly token: TokenEndpoint }>(twitchTo
 const twitchAuth: FakeApiDefinition<TwitchAuthScenario> = {
   hostname: "id.twitch.tv",
   endpoints: {
-    "POST /oauth2/token": (scenario, received) =>
+    "POST /oauth2/token": (scenario, received, earlier) =>
       received.form["grant_type"] === "client_credentials"
-        ? twitchAppToken({ token: scenario?.appToken ?? defaultAppTokenGrant }, received)
-        : twitchUserToken(scenario, received),
+        ? twitchAppToken({ token: scenario?.appToken ?? defaultAppTokenGrant }, received, earlier)
+        : twitchUserToken(scenario, received, earlier),
     "GET /oauth2/validate": identityEndpoint("OAuth", (scenario) =>
       Option.map(grantOf(scenario.token), (grant) => ({
         accessToken: grant.accessToken,
@@ -265,15 +285,19 @@ const unauthorized = respond(401, { error: "Unauthorized", status: 401 })
 /** A Helix endpoint that needs the Broadcaster's user access token. */
 const userEndpoint =
   (
-    answer: (scenario: TwitchHelixScenario, received: ReceivedRequest) => FakeResponse,
+    answer: (
+      scenario: TwitchHelixScenario,
+      received: ReceivedRequest,
+      earlier: ReadonlyArray<ReceivedRequest>,
+    ) => FakeResponse,
   ): Endpoint<TwitchHelixScenario> =>
-  (scenario, received) => {
+  (scenario, received, earlier) => {
     if (scenario === undefined) {
       return noScenario
     }
     const accepted = Option.getOrUndefined(scenario.accessToken)
     return accepted !== undefined && helixBearer(received) === accepted
-      ? answer(scenario, received)
+      ? answer(scenario, received, earlier)
       : unauthorized
   }
 
@@ -381,21 +405,44 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
         ? respondEmpty(204)
         : respond(404, { error: "Not Found" }),
     ),
-    "PATCH /helix/channel_points/custom_rewards/redemptions": userEndpoint((_scenario, received) =>
-      respond(200, {
-        data: [
-          {
-            id: query(received).get("id"),
-            broadcaster_id: query(received).get("broadcaster_id"),
-            reward: { id: query(received).get("reward_id") },
-            status: asRecord(received.json)["status"],
-          },
-        ],
-      }),
+    "PATCH /helix/channel_points/custom_rewards/redemptions": userEndpoint(
+      (scenario, received, earlier) => {
+        const refused = earlier.filter((request) => request.url === received.url).length
+        return refused < (scenario.redemptionUpdateRefusals ?? 0)
+          ? respond(500, { error: "Internal Server Error", status: 500 })
+          : respond(200, {
+              data: [
+                {
+                  id: query(received).get("id"),
+                  broadcaster_id: query(received).get("broadcaster_id"),
+                  reward: { id: query(received).get("reward_id") },
+                  status: asRecord(received.json)["status"],
+                },
+              ],
+            })
+      },
     ),
-    "POST /helix/chat/messages": userEndpoint(() =>
-      respond(200, { data: [{ message_id: "chat-message-1", is_sent: true, drop_reason: null }] }),
-    ),
+    "POST /helix/chat/messages": userEndpoint((scenario) => {
+      const answer = scenario.chatSend
+      switch (answer?._tag) {
+        case undefined:
+          return respond(200, {
+            data: [{ message_id: "chat-message-1", is_sent: true, drop_reason: null }],
+          })
+        case "Refused":
+          return respond(answer.status, { error: "Refused", status: answer.status })
+        case "Dropped":
+          return respond(200, {
+            data: [
+              {
+                message_id: "",
+                is_sent: false,
+                drop_reason: { code: answer.code, message: answer.message },
+              },
+            ],
+          })
+      }
+    }),
     "GET /helix/streams": userEndpoint((scenario, received) =>
       respond(200, {
         data:
@@ -455,7 +502,19 @@ const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
         body: { id: scenario.account.id, display_name: scenario.account.displayName },
       })),
     ),
-    "POST /v1/me/player/queue": spotifyEndpoint(() => respondEmpty(204)),
+    "POST /v1/me/player/queue": spotifyEndpoint((scenario) =>
+      scenario.queueRefusal === undefined
+        ? respondEmpty(204)
+        : respond(scenario.queueRefusal.status, {
+            error: {
+              status: scenario.queueRefusal.status,
+              message: scenario.queueRefusal.message,
+              ...(scenario.queueRefusal.reason === undefined
+                ? {}
+                : { reason: scenario.queueRefusal.reason }),
+            },
+          }),
+    ),
     "GET /v1/tracks/*": spotifyEndpoint((scenario, received) => {
       const id = new URL(received.url).pathname.split("/").pop() ?? ""
       const track = scenario.tracks?.[id]

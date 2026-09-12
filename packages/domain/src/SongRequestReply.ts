@@ -1,4 +1,4 @@
-import type { CancellationReason, RedemptionOutcome } from "./RedemptionOutcome.ts"
+import type { CancellationReason } from "./RedemptionOutcome.ts"
 
 /** Twitch refuses a chat message of this many characters or more; every reply stays under it. */
 export const chatMessageLimit = 500
@@ -22,29 +22,26 @@ export const trackPageLink = (trackId: string): string =>
 
 /** What each cancellation says in chat, after the viewer's name. */
 export const cancellationReplies: Record<CancellationReason, string> = {
-  NotATrackLink: "that isn't a Spotify track link, points refunded",
-  NothingPlaying: "Spotify isn't playing right now, points refunded",
-  Offline: "song requests are off while the stream is offline, points refunded",
-  SpotifyUnavailable: "couldn't add that track, points refunded",
-  Failed: "couldn't add that track, points refunded",
+  NotATrackLink: "that isn't a Spotify track link, points refunded.",
+  NothingPlaying: "Spotify isn't playing right now, points refunded.",
+  Offline: "song requests are off while the stream is offline, points refunded.",
+  SpotifyUnavailable: "couldn't add that track, points refunded.",
+  Failed: "couldn't add that track, points refunded.",
 }
 
 export const describeTrack = (track: Track): string =>
   `${track.name} by ${track.artists.join(", ")}`
 
+/** The reply to a viewer whose Redemption was cancelled for the reason, addressed by display name. */
+export const cancelledReply = (viewerName: string, reason: CancellationReason): string =>
+  `@${viewerName} ${cancellationReplies[reason]}`
+
 /**
- * The reply to a viewer whose Redemption ended in the outcome, addressed by
- * display name. A fulfilled reply names the track; one that would reach
- * Twitch's limit names the track's link instead, which always fits.
+ * The reply to a viewer whose Redemption was fulfilled, addressed by display
+ * name and naming the track; one that would reach Twitch's limit names the
+ * track's link instead, which always fits.
  */
-export const replyTo = (
-  viewerName: string,
-  outcome: RedemptionOutcome,
-  track: QueuedTrack,
-): string => {
-  if (outcome._tag === "Cancelled") {
-    return `@${viewerName} ${cancellationReplies[outcome.reason]}`
-  }
+export const fulfilledReply = (viewerName: string, track: QueuedTrack): string => {
   const named = `@${viewerName} added ${track.description} to the queue.`
   return named.length < chatMessageLimit
     ? named

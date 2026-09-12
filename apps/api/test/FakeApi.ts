@@ -35,10 +35,15 @@ export interface WithLatency {
   readonly latency?: Duration.Input | undefined
 }
 
-/** How one endpoint answers, given the scenario in force and the request as recorded. */
+/**
+ * How one endpoint answers, given the scenario in force, the request as
+ * recorded, and every request this API answered before it, so an answer
+ * can differ by how many times the same thing has been asked.
+ */
 export type Endpoint<Scenario> = (
   scenario: Scenario | undefined,
   received: ReceivedRequest,
+  earlier: ReadonlyArray<ReceivedRequest>,
 ) => FakeResponse
 
 /**
@@ -136,9 +141,11 @@ export const makeFakeApi = <Scenario extends WithLatency>(
         yield* Effect.sleep(current.latency)
       }
       const endpoint = endpointFor(definition, received)
-      return endpoint === undefined
-        ? respond(404, { error: "not found" })
-        : endpoint(current, received)
+      if (endpoint === undefined) {
+        return respond(404, { error: "not found" })
+      }
+      const earlier = (yield* service.received).filter((entry) => entry !== received)
+      return endpoint(current, received, earlier)
     })
     return { hostname: definition.hostname, service, answer }
   })
