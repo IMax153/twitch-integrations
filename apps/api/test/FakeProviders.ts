@@ -1,17 +1,25 @@
 import type { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Context from "effect/Context"
-import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as Ref from "effect/Ref"
 import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientError from "effect/unstable/http/HttpClientError"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { ProviderCredentials } from "../src/ProviderCredentials.ts"
+import {
+  type Endpoint,
+  type FakeApiDefinition,
+  type FakeApiService,
+  type FakeResponse,
+  type ReceivedRequest,
+  type WithLatency,
+  makeFakeApi,
+  makeRequestLog,
+  respond,
+  routeByHostname,
+} from "./FakeApi.ts"
 
 /** The tokens a fake Provider hands out on a successful grant. */
 export interface TokenGrant {
@@ -31,27 +39,39 @@ export type TokenEndpoint =
   /** A 200 whose body is not a token response. */
   | { readonly _tag: "Malformed" }
 
-/** How a fake Provider answers the next exchange and identity lookup. */
-export interface ProviderScenario {
+/** How a fake Provider answers the next exchange and identity lookup, across both of its hosts. */
+export interface ProviderScenario extends WithLatency {
   readonly token: TokenEndpoint
   readonly account: ConnectedAccount
-  /** How long every answer takes on the Clock, so a test can hold a request in flight. */
-  readonly latency?: Duration.Input
 }
 
-/** One request as the fake Provider saw it, with any form body decoded. */
-export interface ReceivedRequest {
-  readonly provider: ProviderName
-  readonly method: string
-  readonly url: string
-  readonly headers: Readonly<Record<string, string>>
-  readonly form: Readonly<Record<string, string>>
+/** Twitch serves its identity endpoint from its token host, so the whole Provider scenario applies there. */
+export type TwitchAuthScenario = ProviderScenario
+
+/** How Twitch Helix answers: the access token it accepts, or none while nothing has been granted. No endpoint is served yet. */
+export interface TwitchHelixScenario extends WithLatency {
+  readonly accessToken: Option.Option<string>
+}
+
+/** How Spotify's accounts host answers a token request. */
+export interface SpotifyAccountsScenario extends WithLatency {
+  readonly token: TokenEndpoint
+}
+
+/** How the Spotify Web API answers: the access token it accepts, or none while nothing has been granted, and whose account that is. */
+export interface SpotifyWebScenario extends WithLatency {
+  readonly accessToken: Option.Option<string>
+  readonly account: ConnectedAccount
 }
 
 export interface FakeProvidersService {
-  /** Sets what the Provider answers from now on. */
+  readonly twitchAuth: FakeApiService<TwitchAuthScenario>
+  readonly twitchHelix: FakeApiService<TwitchHelixScenario>
+  readonly spotifyAccounts: FakeApiService<SpotifyAccountsScenario>
+  readonly spotifyWeb: FakeApiService<SpotifyWebScenario>
+  /** Sets both of the Provider's fake APIs for one grant, from now on. */
   readonly set: (provider: ProviderName, scenario: ProviderScenario) => Effect.Effect<void>
-  /** Every request the fake Providers have received, oldest first. */
+  /** Every request any fake API has received, oldest first. */
   readonly received: Effect.Effect<ReadonlyArray<ReceivedRequest>>
 }
 
@@ -72,201 +92,171 @@ const credentials = Layer.succeed(ProviderCredentials, {
   },
 })
 
-type Scenarios = Partial<Record<ProviderName, ProviderScenario>>
+const basicAuthorization = (clientId: string, clientSecret: string) =>
+  `Basic ${btoa(`${clientId}:${clientSecret}`)}`
 
-/** A JSON answer, or none when the fake plays a Provider that cannot be reached. */
-type FakeResponse = { readonly status: number; readonly body: unknown } | "unreachable"
+const noScenario = respond(500, { error: "no scenario set" })
 
-const respond = (status: number, body: unknown): FakeResponse => ({ status, body })
+/** The grant a token endpoint hands out, or none when it answers any other way. */
+const grantOf = (token: TokenEndpoint): Option.Option<TokenGrant> =>
+  token._tag === "Grant" ? Option.some(token.grant) : Option.none()
 
-const decodeForm = (request: HttpClientRequest.HttpClientRequest): Record<string, string> =>
-  request.body._tag === "Uint8Array"
-    ? Object.fromEntries(new URLSearchParams(new TextDecoder().decode(request.body.body)))
-    : {}
-
-/** How one fake Provider differs from the other on the wire. */
-interface FakeProvider {
-  readonly tokenEndpoint: string
-  readonly identityEndpoint: string
+/** How a token endpoint differs between Providers on the wire. */
+interface TokenDialect {
   /** Whether a token request carries the Credentials the way this Provider expects. */
   readonly authenticated: (received: ReceivedRequest) => boolean
   readonly tokenType: string
   /** How this Provider reports granted scopes in a token response. */
   readonly scope: (scopes: ReadonlyArray<string>) => unknown
-  /** The `Authorization` scheme the identity endpoint expects. */
-  readonly identityScheme: string
-  readonly identityBody: (account: ConnectedAccount, grant: TokenGrant) => unknown
-}
-
-const basicAuthorization = (clientId: string, clientSecret: string) =>
-  `Basic ${btoa(`${clientId}:${clientSecret}`)}`
-
-const fakeProviders: Record<ProviderName, FakeProvider> = {
-  spotify: {
-    tokenEndpoint: "https://accounts.spotify.com/api/token",
-    identityEndpoint: "https://api.spotify.com/v1/me",
-    authenticated: (received) =>
-      received.headers["authorization"] ===
-      basicAuthorization(
-        expectedCredentials.spotify.clientId,
-        expectedCredentials.spotify.clientSecret,
-      ),
-    tokenType: "Bearer",
-    scope: (scopes) => scopes.join(" "),
-    identityScheme: "Bearer",
-    identityBody: (account) => ({ id: account.id, display_name: account.displayName }),
-  },
-  twitch: {
-    tokenEndpoint: "https://id.twitch.tv/oauth2/token",
-    identityEndpoint: "https://id.twitch.tv/oauth2/validate",
-    authenticated: (received) =>
-      received.form["client_id"] === expectedCredentials.twitch.clientId &&
-      received.form["client_secret"] === expectedCredentials.twitch.clientSecret,
-    tokenType: "bearer",
-    scope: (scopes) => scopes,
-    identityScheme: "OAuth",
-    identityBody: (account, grant) => ({
-      client_id: expectedCredentials.twitch.clientId,
-      login: account.displayName,
-      user_id: account.id,
-      scopes: Option.getOrElse(grant.scopes, () => []),
-      expires_in: grant.expiresIn,
-    }),
-  },
 }
 
 /** The token endpoint: checks the client authentication the Provider expects, then grants. */
-const tokenResponse = (
-  fake: FakeProvider,
-  scenario: ProviderScenario | undefined,
-  received: ReceivedRequest,
-): FakeResponse => {
-  if (!fake.authenticated(received)) {
-    return respond(401, { error: "invalid_client" })
+const tokenEndpoint =
+  <Scenario extends { readonly token: TokenEndpoint }>(dialect: TokenDialect): Endpoint<Scenario> =>
+  (scenario, received) => {
+    if (!dialect.authenticated(received)) {
+      return respond(401, { error: "invalid_client" })
+    }
+    if (scenario === undefined) {
+      return noScenario
+    }
+    const { token } = scenario
+    switch (token._tag) {
+      case "Grant":
+        return respond(200, {
+          access_token: token.grant.accessToken,
+          token_type: dialect.tokenType,
+          expires_in: token.grant.expiresIn,
+          refresh_token: Option.getOrUndefined(token.grant.refreshToken),
+          scope: Option.map(token.grant.scopes, dialect.scope).pipe(Option.getOrUndefined),
+        })
+      case "Status":
+        return respond(token.status, { error: "invalid_grant" })
+      case "Unreachable":
+        return "unreachable"
+      case "Malformed":
+        return respond(200, { unexpected: true })
+    }
   }
-  if (scenario === undefined) {
-    return respond(500, { error: "no scenario set" })
+
+/** An identity endpoint: requires the accepted access token in the host's own `Authorization` scheme, and answers 401 while there is none. */
+const identityEndpoint =
+  <Scenario>(
+    scheme: string,
+    accepted: (scenario: Scenario) => Option.Option<{ accessToken: string; body: unknown }>,
+  ): Endpoint<Scenario> =>
+  (scenario, received): FakeResponse => {
+    if (scenario === undefined) {
+      return noScenario
+    }
+    return Option.match(accepted(scenario), {
+      onNone: () => respond(401, { error: "invalid token" }),
+      onSome: ({ accessToken, body }) =>
+        received.headers["authorization"] === `${scheme} ${accessToken}`
+          ? respond(200, body)
+          : respond(401, { error: "invalid token" }),
+    })
   }
-  const { token } = scenario
-  switch (token._tag) {
-    case "Grant":
-      return respond(200, {
-        access_token: token.grant.accessToken,
-        token_type: fake.tokenType,
-        expires_in: token.grant.expiresIn,
-        refresh_token: Option.getOrUndefined(token.grant.refreshToken),
-        scope: Option.map(token.grant.scopes, fake.scope).pipe(Option.getOrUndefined),
-      })
-    case "Status":
-      return respond(token.status, { error: "invalid_grant" })
-    case "Unreachable":
-      return "unreachable"
-    case "Malformed":
-      return respond(200, { unexpected: true })
-  }
+
+const twitchAuth: FakeApiDefinition<TwitchAuthScenario> = {
+  hostname: "id.twitch.tv",
+  endpoints: {
+    "POST /oauth2/token": tokenEndpoint({
+      authenticated: (received) =>
+        received.form["client_id"] === expectedCredentials.twitch.clientId &&
+        received.form["client_secret"] === expectedCredentials.twitch.clientSecret,
+      tokenType: "bearer",
+      scope: (scopes) => scopes,
+    }),
+    "GET /oauth2/validate": identityEndpoint("OAuth", (scenario) =>
+      Option.map(grantOf(scenario.token), (grant) => ({
+        accessToken: grant.accessToken,
+        body: {
+          client_id: expectedCredentials.twitch.clientId,
+          login: scenario.account.displayName,
+          user_id: scenario.account.id,
+          scopes: Option.getOrElse(grant.scopes, () => []),
+          expires_in: grant.expiresIn,
+        },
+      })),
+    ),
+  },
 }
 
-/** The identity endpoint: requires the granted access token in the Provider's own header style. */
-const identityResponse = (
-  fake: FakeProvider,
-  scenario: ProviderScenario | undefined,
-  received: ReceivedRequest,
-): FakeResponse => {
-  if (scenario === undefined) {
-    return respond(500, { error: "no scenario set" })
-  }
-  // A token endpoint that granted nothing has no access token to recognise.
-  const grant = scenario.token._tag === "Grant" ? scenario.token.grant : undefined
-  if (
-    grant === undefined ||
-    received.headers["authorization"] !== `${fake.identityScheme} ${grant.accessToken}`
-  ) {
-    return respond(401, { error: "invalid token" })
-  }
-  return respond(200, fake.identityBody(scenario.account, grant))
+const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
+  hostname: "api.twitch.tv",
+  endpoints: {},
 }
 
-interface Endpoint {
-  readonly provider: ProviderName
-  readonly handle: (
-    scenario: ProviderScenario | undefined,
-    received: ReceivedRequest,
-  ) => FakeResponse
+const spotifyAccounts: FakeApiDefinition<SpotifyAccountsScenario> = {
+  hostname: "accounts.spotify.com",
+  endpoints: {
+    "POST /api/token": tokenEndpoint({
+      authenticated: (received) =>
+        received.headers["authorization"] ===
+        basicAuthorization(
+          expectedCredentials.spotify.clientId,
+          expectedCredentials.spotify.clientSecret,
+        ),
+      tokenType: "Bearer",
+      scope: (scopes) => scopes.join(" "),
+    }),
+  },
 }
 
-/** The fake endpoints, keyed by method, origin, and path as the real Providers expose them. */
-const endpoints: Record<string, Endpoint> = Object.fromEntries(
-  (Object.keys(fakeProviders) as ReadonlyArray<ProviderName>).flatMap((provider) => {
-    const fake = fakeProviders[provider]
-    return [
-      [
-        `POST ${fake.tokenEndpoint}`,
-        { provider, handle: (scenario, received) => tokenResponse(fake, scenario, received) },
-      ],
-      [
-        `GET ${fake.identityEndpoint}`,
-        { provider, handle: (scenario, received) => identityResponse(fake, scenario, received) },
-      ],
-    ] satisfies ReadonlyArray<readonly [string, Endpoint]>
-  }),
-)
+const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
+  hostname: "api.spotify.com",
+  endpoints: {
+    "GET /v1/me": identityEndpoint("Bearer", (scenario) =>
+      Option.map(scenario.accessToken, (accessToken) => ({
+        accessToken,
+        body: { id: scenario.account.id, display_name: scenario.account.displayName },
+      })),
+    ),
+  },
+}
 
 const make = Effect.gen(function* () {
-  const scenarios = yield* Ref.make<Scenarios>({})
-  const log = yield* Ref.make<ReadonlyArray<ReceivedRequest>>([])
+  const log = yield* makeRequestLog
+  const apis = {
+    twitchAuth: yield* makeFakeApi(twitchAuth, log),
+    twitchHelix: yield* makeFakeApi(twitchHelix, log),
+    spotifyAccounts: yield* makeFakeApi(spotifyAccounts, log),
+    spotifyWeb: yield* makeFakeApi(spotifyWeb, log),
+  }
 
-  const client = HttpClient.make((request, url) =>
-    Effect.gen(function* () {
-      const endpoint = endpoints[`${request.method} ${url.origin}${url.pathname}`]
-      // NOTE: the transport is closed: anything but the known Provider
-      // endpoints fails as if the network refused it, so no test can reach a
-      // live Provider by accident.
-      if (endpoint === undefined) {
-        return yield* new HttpClientError.HttpClientError({
-          reason: new HttpClientError.TransportError({
-            request,
-            cause: new Error(`Refused ${request.method} ${url.toString()}`),
-          }),
-        })
-      }
-      const received: ReceivedRequest = {
-        provider: endpoint.provider,
-        method: request.method,
-        url: url.toString(),
-        headers: { ...request.headers },
-        form: decodeForm(request),
-      }
-      yield* Ref.update(log, (entries) => [...entries, received])
-      const scenario = (yield* Ref.get(scenarios))[endpoint.provider]
-      if (scenario?.latency !== undefined) {
-        yield* Effect.sleep(scenario.latency)
-      }
-      const answer = endpoint.handle(scenario, received)
-      if (answer === "unreachable") {
-        return yield* new HttpClientError.HttpClientError({
-          reason: new HttpClientError.TransportError({
-            request,
-            cause: new Error(`${url.host} is unreachable`),
-          }),
-        })
-      }
-      return HttpClientResponse.fromWeb(
-        request,
-        Response.json(answer.body, { status: answer.status }),
-      )
-    }),
-  )
+  /** Fans a Provider's scenario out to its token host and to the API the granted token opens. */
+  const set: FakeProvidersService["set"] = (provider, scenario) => {
+    const accessToken = Option.map(grantOf(scenario.token), (grant) => grant.accessToken)
+    const { latency } = scenario
+    switch (provider) {
+      case "twitch":
+        return Effect.andThen(
+          apis.twitchAuth.service.set(scenario),
+          apis.twitchHelix.service.set({ accessToken, latency }),
+        )
+      case "spotify":
+        return Effect.andThen(
+          apis.spotifyAccounts.service.set({ token: scenario.token, latency }),
+          apis.spotifyWeb.service.set({ accessToken, account: scenario.account, latency }),
+        )
+    }
+  }
 
   const service: FakeProvidersService = {
-    set: (provider, scenario) =>
-      Ref.update(scenarios, (current) => ({ ...current, [provider]: scenario })),
-    received: Ref.get(log),
+    twitchAuth: apis.twitchAuth.service,
+    twitchHelix: apis.twitchHelix.service,
+    spotifyAccounts: apis.spotifyAccounts.service,
+    spotifyWeb: apis.spotifyWeb.service,
+    set,
+    received: Ref.get(log.entries),
   }
+  const client = routeByHostname(Object.values(apis), log)
   return { service, client }
 })
 
 /**
- * Fake Spotify and Twitch token and identity endpoints behind a closed
+ * Fake Twitch and Spotify APIs, one per hostname, behind a closed
  * `HttpClient`, plus the control service a test sets scenarios on and reads
  * received requests from.
  */

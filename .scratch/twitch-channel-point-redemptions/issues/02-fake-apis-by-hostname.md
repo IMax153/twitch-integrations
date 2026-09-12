@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Requests are dispatched by hostname to a fake API, and an unknown hostname fails the request rather than reaching the network
-- [ ] Each fake API exposes a control service to set its scenario and a way to read the requests it received, oldest first
-- [ ] Recorded requests include a decoded JSON body as well as a decoded form body, since Helix and Spotify take JSON
-- [ ] The existing OAuth test suite passes without changes to its assertions
-- [ ] No production module changes
+- [x] Requests are dispatched by hostname to a fake API, and an unknown hostname fails the request rather than reaching the network
+- [x] Each fake API exposes a control service to set its scenario and a way to read the requests it received, oldest first
+- [x] Recorded requests include a decoded JSON body as well as a decoded form body, since Helix and Spotify take JSON
+- [x] The existing OAuth test suite passes without changes to its assertions
+- [x] No production module changes
