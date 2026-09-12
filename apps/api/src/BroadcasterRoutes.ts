@@ -24,7 +24,7 @@ import type { AttemptClaim } from "./ConnectionStore.ts"
 const broadcasterPathPrefixes = ["/setup", "/oauth"]
 
 /** The Broadcaster Page, where every callback outcome sends the browser. */
-const broadcasterPagePath = broadcasterPathPrefixes[0]
+const broadcasterPagePath = "/"
 
 const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 

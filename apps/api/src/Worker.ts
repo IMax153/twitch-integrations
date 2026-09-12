@@ -26,9 +26,9 @@ const devPort = 1337
 
 /**
  * The API Worker owns the broadcaster hostname as its custom domain, so every
- * path not routed to another Worker lands here. The `/setup/api*` route is
- * more specific than the web Worker's `/setup*` route, so the page's JSON
- * requests reach this Worker. It hosts the Channel object and declares so,
+ * path not routed to another Worker lands here. The `/setup/api*` and
+ * `/oauth*` routes are more specific than the web Worker's `/*` route, so
+ * JSON and authorization requests reach this Worker. It hosts the Channel object and declares so,
  * which is what lets the receiver bind that object's namespace across
  * scripts; the class is the Worker's identity and `layer` below is its
  * implementation, which only the stack builds.
@@ -40,7 +40,7 @@ export default ApiWorker.make(
     return {
       main: import.meta.url,
       domain: { name: broadcasterHostname, zoneName },
-      routes: [broadcasterRoute("/setup/api*")],
+      routes: [broadcasterRoute("/setup/api*"), broadcasterRoute("/oauth*")],
       ...(yield* enrollment),
       workersDev: false,
       dev: { host: devHost, port: devPort, strictPort: true, access: devBroadcasterAccess },

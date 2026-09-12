@@ -7,7 +7,7 @@ related_targets: ["src/styles.css"]
 
 # Broadcaster Page monitoring
 
-Mode: Operate. Target: `src/main.ts`, `src/styles.css`, `/setup/`.
+Mode: Operate. Target: `src/main.ts`, `src/styles.css`, `/`.
 
 The confirmed task is one glanceable overview of Song Request readiness, current processing, and both Connections on a second screen or tablet. Details expand inline. Only monitoring, authorization, and refresh actions are included. No Reward editing, manual refunds, or completed history.
 

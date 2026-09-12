@@ -22,7 +22,7 @@ The Broadcaster uses the page before and during streams for checks and intervent
 
 One deployment uses one shared Spotify account and one shared Twitch account. The Song Request Reward lets a viewer redeem channel points with a Spotify track link to add a track to the Broadcaster's Spotify queue. Rewards can be redeemed only while the Channel is Live. Offline Rewards are paused, and arriving Redemptions are cancelled.
 
-The page is served at `/setup/` on `stream.minbadblue.com`. It shares an origin and Access session with the API. Authorization leaves the page for the Provider and returns with a result.
+The page is served at `/` on `stream.minbadblue.com`. It shares an origin and Access session with the API. Authorization leaves the page for the Provider and returns to `/` with a result. Existing `/setup` and `/setup/` bookmarks redirect to `/`.
 
 Local development uses `vp run dev` from the repository root. The web dev configuration uses `127.0.0.1:5173`, with `/setup/api` and `/oauth` proxied to the API Worker on port 1337.
 
