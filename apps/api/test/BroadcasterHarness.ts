@@ -134,90 +134,84 @@ const perProvider = <A, E, R>(make: (provider: ProviderName) => Effect.Effect<A,
     Effect.map(make(provider), (value) => [provider, value] as const),
   ).pipe(Effect.map(Record.fromEntries))
 
-export const makeWorld = (
-  options: WorldOptions = {},
-): Effect.Effect<BroadcasterWorld, never, Scope.Scope> =>
-  Effect.gen(function* () {
-    const fakes = yield* Layer.build(FakeProviders.layer)
-    const providers = Context.get(fakes, FakeProviders)
-    const alarms = yield* perProvider(() => Layer.build(FakeRefreshAlarm.layer))
-    const services = yield* perProvider((provider) =>
-      inMemoryObject(provider, Layer.succeedContext(fakes), Layer.succeedContext(alarms[provider])),
-    )
-    const stores = Record.map(services, Context.get(ConnectionStore))
-    const rebuildObject = (provider: ProviderName) =>
-      makeConnectionObject(provider).pipe(Effect.provide(services[provider]))
-    const objects = yield* perProvider(rebuildObject)
-    const connections = Layer.succeed(
-      Connections,
-      Connections.fromObjects((provider) => objects[provider]),
-    )
-    const channelServices = yield* Layer.build(
-      channelObjectLayer.pipe(
-        Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
-        Layer.provide(FakeProviders.layerCredentials),
-        Layer.provide(Layer.succeedContext(fakes)),
-        Layer.provide(connections),
-        Layer.provide(
-          Layer.succeed(EventSubTransport, {
-            callback: testTransport.callback,
-            secret: Redacted.make(testTransport.secret),
-            enabled: options.eventSubscriptions ?? true,
-          }),
+export const makeWorld = Effect.fnUntraced(function* (options: WorldOptions = {}) {
+  const fakes = yield* Layer.build(FakeProviders.layer)
+  const providers = Context.get(fakes, FakeProviders)
+  const alarms = yield* perProvider(() => Layer.build(FakeRefreshAlarm.layer))
+  const services = yield* perProvider((provider) =>
+    inMemoryObject(provider, Layer.succeedContext(fakes), Layer.succeedContext(alarms[provider])),
+  )
+  const stores = Record.map(services, Context.get(ConnectionStore))
+  const rebuildObject = (provider: ProviderName) =>
+    makeConnectionObject(provider).pipe(Effect.provide(services[provider]))
+  const objects = yield* perProvider(rebuildObject)
+  const connections = Layer.succeed(
+    Connections,
+    Connections.fromObjects((provider) => objects[provider]),
+  )
+  const channelServices = yield* Layer.build(
+    channelObjectLayer.pipe(
+      Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
+      Layer.provide(FakeProviders.layerCredentials),
+      Layer.provide(Layer.succeedContext(fakes)),
+      Layer.provide(connections),
+      Layer.provide(
+        Layer.succeed(EventSubTransport, {
+          callback: testTransport.callback,
+          secret: Redacted.make(testTransport.secret),
+          enabled: options.eventSubscriptions ?? true,
+        }),
+      ),
+    ),
+  )
+  const rebuildChannel = makeChannelObject.pipe(Effect.provide(channelServices))
+  const channel = yield* rebuildChannel
+  const handler = yield* BroadcasterHttp.pipe(
+    Effect.provide(
+      Layer.merge(
+        connections,
+        Layer.succeed(
+          Channel,
+          Channel.fromObject(() => channel),
         ),
       ),
-    )
-    const rebuildChannel = makeChannelObject.pipe(Effect.provide(channelServices))
-    const channel = yield* rebuildChannel
-    const handler = yield* BroadcasterHttp.pipe(
+    ),
+  )
+
+  /**
+   * Sends a Web request through Alchemy's request bridge to the Worker's
+   * HTTP handler, with a fake execution context. Passing an identity
+   * simulates a request admitted by Cloudflare Access; omitting it
+   * simulates an unauthenticated request.
+   */
+  const send: BroadcasterWorld["send"] = (request, options) => {
+    const env =
+      options?.identity === undefined
+        ? {}
+        : { [DEV_ACCESS_ENV_KEY]: { aud: "test", identity: options.identity } }
+    return sendThroughBridge(request, handler).pipe(
       Effect.provide(
-        Layer.merge(
-          connections,
-          Layer.succeed(
-            Channel,
-            Channel.fromObject(() => channel),
-          ),
+        Layer.mergeAll(
+          Layer.succeed(WorkerExecutionContext, fromExecutionContext(fakeExecutionContext(), env)),
+          RuntimeContext.phantom,
         ),
       ),
+      Effect.scoped,
     )
+  }
 
-    /**
-     * Sends a Web request through Alchemy's request bridge to the Worker's
-     * HTTP handler, with a fake execution context. Passing an identity
-     * simulates a request admitted by Cloudflare Access; omitting it
-     * simulates an unauthenticated request.
-     */
-    const send: BroadcasterWorld["send"] = (request, options) => {
-      const env =
-        options?.identity === undefined
-          ? {}
-          : { [DEV_ACCESS_ENV_KEY]: { aud: "test", identity: options.identity } }
-      return sendThroughBridge(request, handler).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            Layer.succeed(
-              WorkerExecutionContext,
-              fromExecutionContext(fakeExecutionContext(), env),
-            ),
-            RuntimeContext.phantom,
-          ),
-        ),
-        Effect.scoped,
-      )
-    }
-
-    return {
-      send,
-      stores,
-      objects,
-      providers,
-      alarms: Record.map(alarms, Context.get(FakeRefreshAlarm)),
-      rebuildObject,
-      channel,
-      channelStore: Context.get(channelServices, ChannelStore),
-      rebuildChannel,
-    }
-  })
+  return {
+    send,
+    stores,
+    objects,
+    providers,
+    alarms: Record.map(alarms, Context.get(FakeRefreshAlarm)),
+    rebuildObject,
+    channel,
+    channelStore: Context.get(channelServices, ChannelStore),
+    rebuildChannel,
+  } satisfies BroadcasterWorld
+})
 
 /** A world in which the Channel manages Event Subscriptions, as in production. */
 export const makeBroadcasterWorld: Effect.Effect<BroadcasterWorld, never, Scope.Scope> = makeWorld()

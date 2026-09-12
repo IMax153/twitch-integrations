@@ -208,8 +208,8 @@ const make = Effect.gen(function* () {
     )
 
   const service: HelixService = {
-    listManageableRewards: (token, broadcasterId) =>
-      Effect.gen(function* () {
+    listManageableRewards: Effect.fn("Helix.listManageableRewards")(
+      function* (token: AccessToken, broadcasterId: string) {
         const request = HttpClientRequest.get(rewardsEndpoint).pipe(
           HttpClientRequest.setUrlParams({
             broadcaster_id: broadcasterId,
@@ -219,10 +219,12 @@ const make = Effect.gen(function* () {
         )
         const response = yield* readRewards(yield* client.execute(request))
         return response.data.map(rewardOf)
-      }).pipe(Effect.mapError(failed("list rewards"))),
+      },
+      Effect.mapError(failed("list rewards")),
+    ),
 
-    createReward: (token, broadcasterId, settings) =>
-      Effect.gen(function* () {
+    createReward: Effect.fn("Helix.createReward")(
+      function* (token: AccessToken, broadcasterId: string, settings: RewardSettings) {
         const request = HttpClientRequest.post(rewardsEndpoint).pipe(
           HttpClientRequest.setUrlParams({ broadcaster_id: broadcasterId }),
           HttpClientRequest.bodyJsonUnsafe(settingsBody(settings)),
@@ -230,10 +232,17 @@ const make = Effect.gen(function* () {
         )
         const response = yield* readRewards(yield* client.execute(request))
         return rewardOf(yield* single("create reward")(response))
-      }).pipe(Effect.mapError(failed("create reward"))),
+      },
+      Effect.mapError(failed("create reward")),
+    ),
 
-    updateReward: (token, broadcasterId, rewardId, update) =>
-      Effect.gen(function* () {
+    updateReward: Effect.fn("Helix.updateReward")(
+      function* (
+        token: AccessToken,
+        broadcasterId: string,
+        rewardId: string,
+        update: RewardUpdate,
+      ) {
         const request = HttpClientRequest.patch(rewardsEndpoint).pipe(
           HttpClientRequest.setUrlParams({ broadcaster_id: broadcasterId, id: rewardId }),
           HttpClientRequest.bodyJsonUnsafe(updateBody(update)),
@@ -241,7 +250,9 @@ const make = Effect.gen(function* () {
         )
         const response = yield* readRewards(yield* client.execute(request))
         return rewardOf(yield* single("update reward")(response))
-      }).pipe(Effect.mapError(failed("update reward"))),
+      },
+      Effect.mapError(failed("update reward")),
+    ),
 
     listEventSubscriptions: (appToken) => {
       /** One page of subscriptions, from the cursor when there is one. */
@@ -267,8 +278,12 @@ const make = Effect.gen(function* () {
       return collect(undefined, []).pipe(Effect.mapError(failed("list subscriptions")))
     },
 
-    createEventSubscription: (appToken, subscription, transport) =>
-      Effect.gen(function* () {
+    createEventSubscription: Effect.fn("Helix.createEventSubscription")(
+      function* (
+        appToken: AccessToken,
+        subscription: EventSubscriptionRequest,
+        transport: WebhookTransport,
+      ) {
         const request = HttpClientRequest.post(subscriptionsEndpoint).pipe(
           HttpClientRequest.bodyJsonUnsafe({
             type: subscription.type,
@@ -284,7 +299,9 @@ const make = Effect.gen(function* () {
         )
         const response = yield* readEventSubscriptions(yield* client.execute(request))
         return yield* single("create subscription")(response)
-      }).pipe(Effect.mapError(failed("create subscription"))),
+      },
+      Effect.mapError(failed("create subscription")),
+    ),
 
     deleteEventSubscription: (appToken, id) =>
       HttpClientRequest.delete(subscriptionsEndpoint).pipe(
@@ -295,15 +312,17 @@ const make = Effect.gen(function* () {
         Effect.mapError(failed("delete subscription")),
       ),
 
-    isLive: (token, userId) =>
-      Effect.gen(function* () {
+    isLive: Effect.fn("Helix.isLive")(
+      function* (token: AccessToken, userId: string) {
         const request = HttpClientRequest.get(streamsEndpoint).pipe(
           HttpClientRequest.setUrlParams({ user_id: userId }),
           authorized(token),
         )
         const response = yield* readStreams(yield* client.execute(request))
         return response.data.some((stream) => stream.type === "live")
-      }).pipe(Effect.mapError(failed("get stream"))),
+      },
+      Effect.mapError(failed("get stream")),
+    ),
   }
   return service
 })

@@ -100,27 +100,29 @@ const make = Effect.gen(function* () {
    * place. Never deleted, since deleting a reward fulfils its open
    * Redemptions.
    */
-  const ensureReward = (token: AccessToken, account: string) =>
-    Effect.gen(function* () {
-      const stored = yield* store.readReward
-      const existingId = Option.isSome(stored)
-        ? Option.some(stored.value.id)
-        : manageableIdWithTitle(yield* helix.listManageableRewards(token, account), settings.title)
-      const reward = Option.isNone(existingId)
-        ? yield* helix.createReward(token, account, settings)
-        : yield* helix.updateReward(token, account, existingId.value, { settings })
-      yield* Effect.logInfo(
-        Option.isNone(existingId)
-          ? `Created the ${settings.title} Reward ${reward.id}`
-          : `Updated the ${settings.title} Reward ${reward.id}`,
-      )
-      yield* store.writeReward(reward)
-      return reward
-    })
+  const ensureReward = Effect.fn("ChannelReconcile.ensureReward")(function* (
+    token: AccessToken,
+    account: string,
+  ) {
+    const stored = yield* store.readReward
+    const existingId = Option.isSome(stored)
+      ? Option.some(stored.value.id)
+      : manageableIdWithTitle(yield* helix.listManageableRewards(token, account), settings.title)
+    const reward = Option.isNone(existingId)
+      ? yield* helix.createReward(token, account, settings)
+      : yield* helix.updateReward(token, account, existingId.value, { settings })
+    yield* Effect.logInfo(
+      Option.isNone(existingId)
+        ? `Created the ${settings.title} Reward ${reward.id}`
+        : `Updated the ${settings.title} Reward ${reward.id}`,
+    )
+    yield* store.writeReward(reward)
+    return reward
+  })
 
   /** Deletes every Event Subscription this client ID owns and creates the three afresh. */
-  const replaceEventSubscriptions = (account: string, rewardId: string) =>
-    Effect.gen(function* () {
+  const replaceEventSubscriptions = Effect.fn("ChannelReconcile.replaceEventSubscriptions")(
+    function* (account: string, rewardId: string) {
       if (!transport.enabled) {
         yield* Effect.logInfo("Skipping Event Subscriptions under alchemy dev")
         return
@@ -148,23 +150,30 @@ const make = Effect.gen(function* () {
       yield* Effect.logInfo(
         `Replaced ${existing.length} Event Subscriptions with ${created.length}`,
       )
-    })
+    },
+  )
 
-  const seedState = (token: AccessToken, account: string) =>
-    Effect.gen(function* () {
-      const state: ChannelState = (yield* helix.isLive(token, account)) ? "Live" : "Offline"
-      yield* store.writeState(state)
-      return state
-    })
+  const seedState = Effect.fn("ChannelReconcile.seedState")(function* (
+    token: AccessToken,
+    account: string,
+  ) {
+    const state: ChannelState = (yield* helix.isLive(token, account)) ? "Live" : "Offline"
+    yield* store.writeState(state)
+    return state
+  })
 
   /** Paused while Offline, unpaused while Live; stored as Twitch reports it. */
-  const setPause = (token: AccessToken, account: string, reward: Reward, state: ChannelState) =>
-    Effect.gen(function* () {
-      const updated = yield* helix.updateReward(token, account, reward.id, {
-        isPaused: state === "Offline",
-      })
-      yield* store.writeReward({ ...reward, isPaused: updated.isPaused })
+  const setPause = Effect.fn("ChannelReconcile.setPause")(function* (
+    token: AccessToken,
+    account: string,
+    reward: Reward,
+    state: ChannelState,
+  ) {
+    const updated = yield* helix.updateReward(token, account, reward.id, {
+      isPaused: state === "Offline",
     })
+    yield* store.writeReward({ ...reward, isPaused: updated.isPaused })
+  })
 
   const reconcile: Effect.Effect<void, ReconcileError> = lock.withPermit(
     Effect.gen(function* () {

@@ -67,28 +67,32 @@ const make = Effect.gen(function* () {
   }
 
   return AuthorizationFlow.of({
-    start: (broadcaster, callbackUri) =>
-      Effect.gen(function* () {
-        const createdAt = yield* DateTime.now
-        const attempt: AuthorizationAttempt = {
-          state: yield* randomState,
-          provider: provider.name,
-          callbackUri,
-          broadcaster,
-          createdAt,
-          expiresAt: DateTime.add(createdAt, attemptLifetime),
-          consumed: false,
-        }
-        yield* store.createAttempt(attempt)
-        return consentUrl(attempt)
-      }),
-    complete: (claim, code) =>
-      Effect.gen(function* () {
-        yield* store.consumeAttempt(claim)
-        const tokens = yield* provider.exchangeCode(code, claim.callbackUri)
-        const connectedAccount = yield* provider.fetchConnectedAccount(tokens.accessToken)
-        return yield* lifecycle.accept(tokens, connectedAccount)
-      }),
+    start: Effect.fn("AuthorizationFlow.start")(function* (
+      broadcaster: BroadcasterIdentity,
+      callbackUri: string,
+    ) {
+      const createdAt = yield* DateTime.now
+      const attempt: AuthorizationAttempt = {
+        state: yield* randomState,
+        provider: provider.name,
+        callbackUri,
+        broadcaster,
+        createdAt,
+        expiresAt: DateTime.add(createdAt, attemptLifetime),
+        consumed: false,
+      }
+      yield* store.createAttempt(attempt)
+      return consentUrl(attempt)
+    }),
+    complete: Effect.fn("AuthorizationFlow.complete")(function* (
+      claim: AttemptClaim,
+      code: string,
+    ) {
+      yield* store.consumeAttempt(claim)
+      const tokens = yield* provider.exchangeCode(code, claim.callbackUri)
+      const connectedAccount = yield* provider.fetchConnectedAccount(tokens.accessToken)
+      return yield* lifecycle.accept(tokens, connectedAccount)
+    }),
     abandon: store.consumeAttempt,
   })
 })

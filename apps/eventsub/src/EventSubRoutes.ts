@@ -35,16 +35,15 @@ const accepted = HttpServerResponse.empty({ status: 204 })
 const maxMessageAge = Duration.minutes(10)
 
 /** Whether the timestamp header is parseable and no older than the guard allows. A future stamp is accepted. */
-const isFresh = (timestamp: string): Effect.Effect<boolean> =>
-  Effect.gen(function* () {
-    const sentAt = DateTime.make(timestamp)
-    if (Option.isNone(sentAt)) {
-      return false
-    }
-    const now = yield* DateTime.now
-    const age = DateTime.toEpochMillis(now) - DateTime.toEpochMillis(sentAt.value)
-    return age <= Duration.toMillis(maxMessageAge)
-  })
+const isFresh = Effect.fnUntraced(function* (timestamp: string) {
+  const sentAt = DateTime.make(timestamp)
+  if (Option.isNone(sentAt)) {
+    return false
+  }
+  const now = yield* DateTime.now
+  const age = DateTime.toEpochMillis(now) - DateTime.toEpochMillis(sentAt.value)
+  return age <= Duration.toMillis(maxMessageAge)
+})
 
 /** The one field of a verification message the receiver needs: the value Twitch wants echoed back. */
 const Challenge = Schema.Struct({ challenge: Schema.String }).annotate({ identifier: "Challenge" })

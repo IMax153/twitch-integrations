@@ -56,23 +56,23 @@ const presentedDigest = (signature: string): Uint8Array<ArrayBuffer> | undefined
  * the comparison is Web Crypto's `verify`, which is constant time; a
  * header that is not a well-formed digest fails before any comparison.
  */
-export const makeVerifier = (secret: Redacted.Redacted<string>): Effect.Effect<Verifier> =>
-  Effect.gen(function* () {
-    const key = yield* Effect.promise(() =>
-      subtle.importKey(
-        "raw",
-        encoder.encode(Redacted.value(secret)),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["verify"],
-      ),
-    )
-    return (message) => {
-      const digest = presentedDigest(message.signature)
-      if (digest === undefined) {
-        return Effect.succeed(false)
-      }
-      const covered = encoder.encode(`${message.messageId}${message.timestamp}${message.body}`)
-      return Effect.promise(() => subtle.verify("HMAC", key, digest, covered))
+export const makeVerifier = Effect.fnUntraced(function* (secret: Redacted.Redacted<string>) {
+  const key = yield* Effect.promise(() =>
+    subtle.importKey(
+      "raw",
+      encoder.encode(Redacted.value(secret)),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"],
+    ),
+  )
+  const verify: Verifier = (message) => {
+    const digest = presentedDigest(message.signature)
+    if (digest === undefined) {
+      return Effect.succeed(false)
     }
-  })
+    const covered = encoder.encode(`${message.messageId}${message.timestamp}${message.body}`)
+    return Effect.promise(() => subtle.verify("HMAC", key, digest, covered))
+  }
+  return verify
+})

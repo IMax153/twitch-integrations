@@ -7,7 +7,6 @@ import {
 } from "@twitch-integrations/domain/ConnectionErrors"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -44,13 +43,12 @@ const assertSchedule = (stored: Option.Option<Connection>, expected: Schedule) =
   assert.deepStrictEqual(Option.map(stored, schedule), Option.some(expected))
 
 /** A world at 12:55, holding a Connection for the Provider whose token has five minutes left. */
-const worldDueForRefresh = (provider: ProviderName = "spotify") =>
-  Effect.gen(function* () {
-    const world = yield* makeBroadcasterWorld
-    yield* at("2026-09-11T12:55:00Z")
-    yield* world.stores[provider].writeConnection(authorizedConnection)
-    return world
-  })
+const worldDueForRefresh = Effect.fnUntraced(function* (provider: ProviderName = "spotify") {
+  const world = yield* makeBroadcasterWorld
+  yield* at("2026-09-11T12:55:00Z")
+  yield* world.stores[provider].writeConnection(authorizedConnection)
+  return world
+})
 
 /** What a refresh response may leave out, and so must carry over from the previous Connection. */
 const carriedOver = (connection: Connection) => ({
@@ -106,8 +104,8 @@ describe("ConnectionObject.getAccessToken", () => {
     Effect.gen(function* () {
       const world = yield* makeBroadcasterWorld
       yield* at("2026-09-11T12:00:00Z")
-      const exit = yield* Effect.exit(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(exit, Exit.fail(new ConnectionNotConfigured({ provider: "spotify" })))
+      const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
+      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "spotify" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
     }).pipe(Effect.scoped),
   )
@@ -120,8 +118,8 @@ describe("ConnectionObject.getAccessToken", () => {
         ...authorizedConnection,
         status: "Reauthorization Required",
       })
-      const exit = yield* Effect.exit(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(exit, Exit.fail(new ReauthorizationRequired({ provider: "spotify" })))
+      const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
+      assert.deepStrictEqual(failure, new ReauthorizationRequired({ provider: "spotify" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
     }).pipe(Effect.scoped),
   )
@@ -229,8 +227,8 @@ describe("ConnectionObject.getAccessToken", () => {
         ...grantedScenario,
         token: { _tag: "Status", status: 400 },
       })
-      const exit = yield* Effect.exit(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(exit, Exit.fail(new ReauthorizationRequired({ provider: "spotify" })))
+      const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
+      assert.deepStrictEqual(failure, new ReauthorizationRequired({ provider: "spotify" }))
       assert.deepStrictEqual(
         yield* world.stores.spotify.readConnection,
         Option.some({
@@ -245,8 +243,8 @@ describe("ConnectionObject.getAccessToken", () => {
       )
       assert.deepStrictEqual(yield* world.alarms.spotify.armedFor, Option.none())
       // Once rejected, the next request fails the same way without asking again.
-      const again = yield* Effect.exit(world.objects.spotify.getAccessToken())
-      assert.deepStrictEqual(again, Exit.fail(new ReauthorizationRequired({ provider: "spotify" })))
+      const again = yield* Effect.flip(world.objects.spotify.getAccessToken())
+      assert.deepStrictEqual(again, new ReauthorizationRequired({ provider: "spotify" }))
       assert.strictEqual((yield* world.providers.received).length, 1)
     }).pipe(Effect.scoped),
   )
@@ -257,12 +255,10 @@ describe("ConnectionObject.getAccessToken", () => {
       Effect.gen(function* () {
         const world = yield* worldDueForRefresh()
         yield* world.providers.set("spotify", { ...grantedScenario, token })
-        const exit = yield* Effect.exit(world.objects.spotify.getAccessToken())
+        const failure = yield* Effect.flip(world.objects.spotify.getAccessToken())
         assert.deepStrictEqual(
-          exit,
-          Exit.fail(
-            new ProviderRequestFailed({ provider: "spotify", operation: "refresh", reason }),
-          ),
+          failure,
+          new ProviderRequestFailed({ provider: "spotify", operation: "refresh", reason }),
         )
         assert.deepStrictEqual(
           yield* world.stores.spotify.readConnection,

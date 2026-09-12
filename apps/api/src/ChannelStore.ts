@@ -50,28 +50,27 @@ interface StateRow {
   readonly state: string
 }
 
-const createTables = (sql: SqlClient.SqlClient) =>
-  Effect.gen(function* () {
-    yield* sql`
+const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+  yield* sql`
       CREATE TABLE IF NOT EXISTS reward (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         document TEXT NOT NULL
       )
     `
-    yield* sql`
+  yield* sql`
       CREATE TABLE IF NOT EXISTS channel_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         state TEXT NOT NULL
       )
     `
-    yield* sql`
+  yield* sql`
       CREATE TABLE IF NOT EXISTS event_subscription (
         position INTEGER PRIMARY KEY AUTOINCREMENT,
         subscription_id TEXT NOT NULL UNIQUE,
         document TEXT NOT NULL
       )
     `
-  })
+})
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -84,14 +83,13 @@ const make = Effect.gen(function* () {
       return row === undefined ? Option.none() : Option.some(yield* decodeReward(row.document))
     }).pipe(Effect.orDie),
 
-    writeReward: (reward) =>
-      Effect.gen(function* () {
-        const document = yield* encodeReward(reward)
-        yield* sql`
-          INSERT INTO reward (id, document) VALUES (1, ${document})
-          ON CONFLICT (id) DO UPDATE SET document = excluded.document
-        `
-      }).pipe(Effect.orDie),
+    writeReward: Effect.fn("ChannelStore.writeReward")(function* (reward: Reward) {
+      const document = yield* encodeReward(reward)
+      yield* sql`
+        INSERT INTO reward (id, document) VALUES (1, ${document})
+        ON CONFLICT (id) DO UPDATE SET document = excluded.document
+      `
+    }, Effect.orDie),
 
     readState: Effect.gen(function* () {
       const rows = yield* sql<StateRow>`SELECT state FROM channel_state WHERE id = 1`
@@ -111,8 +109,8 @@ const make = Effect.gen(function* () {
       return yield* Effect.forEach(rows, (row) => decodeEventSubscription(row.document))
     }).pipe(Effect.orDie),
 
-    replaceEventSubscriptions: (subscriptions) =>
-      Effect.gen(function* () {
+    replaceEventSubscriptions: Effect.fn("ChannelStore.replaceEventSubscriptions")(
+      function* (subscriptions: ReadonlyArray<EventSubscription>) {
         const documents = yield* Effect.forEach(subscriptions, (subscription) =>
           Effect.map(encodeEventSubscription(subscription), (document) => ({
             subscription_id: subscription.id,
@@ -123,7 +121,10 @@ const make = Effect.gen(function* () {
         if (documents.length > 0) {
           yield* sql`INSERT INTO event_subscription ${sql.insert(documents)}`
         }
-      }).pipe(sql.withTransaction, Effect.orDie),
+      },
+      sql.withTransaction,
+      Effect.orDie,
+    ),
   }
   return store
 })

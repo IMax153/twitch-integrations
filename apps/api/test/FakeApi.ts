@@ -101,6 +101,7 @@ export const makeFakeApi = <Scenario extends WithLatency>(
   definition: FakeApiDefinition<Scenario>,
   log: RequestLog,
 ): Effect.Effect<FakeApi<Scenario>> =>
+  // An arrow rather than `Effect.fn`, which cannot carry the type parameter.
   Effect.gen(function* () {
     const scenario = yield* Ref.make<Scenario | undefined>(undefined)
     const service: FakeApiService<Scenario> = {
@@ -109,18 +110,16 @@ export const makeFakeApi = <Scenario extends WithLatency>(
         entries.filter((entry) => entry.hostname === definition.hostname),
       ),
     }
-    const answer = (received: ReceivedRequest) =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(scenario)
-        if (current?.latency !== undefined) {
-          yield* Effect.sleep(current.latency)
-        }
-        const endpoint =
-          definition.endpoints[`${received.method} ${new URL(received.url).pathname}`]
-        return endpoint === undefined
-          ? respond(404, { error: "not found" })
-          : endpoint(current, received)
-      })
+    const answer = Effect.fnUntraced(function* (received: ReceivedRequest) {
+      const current = yield* Ref.get(scenario)
+      if (current?.latency !== undefined) {
+        yield* Effect.sleep(current.latency)
+      }
+      const endpoint = definition.endpoints[`${received.method} ${new URL(received.url).pathname}`]
+      return endpoint === undefined
+        ? respond(404, { error: "not found" })
+        : endpoint(current, received)
+    })
     return { hostname: definition.hostname, service, answer }
   })
 

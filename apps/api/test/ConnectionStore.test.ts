@@ -38,11 +38,13 @@ const withStore = <A, E>(body: (store: ConnectionStore["Service"]) => Effect.Eff
   Effect.flatMap(ConnectionStore, body).pipe(Effect.provide(storeLayer))
 
 /** Consumes with the claim and reports why the store refused, failing the test if it did not. */
-const rejectionOf = (store: ConnectionStore["Service"], claim: AttemptClaim) =>
-  Effect.gen(function* () {
-    const rejection = yield* Effect.flip(store.consumeAttempt(claim))
-    return rejection.reason
-  })
+const rejectionOf = Effect.fnUntraced(function* (
+  store: ConnectionStore["Service"],
+  claim: AttemptClaim,
+) {
+  const rejection = yield* Effect.flip(store.consumeAttempt(claim))
+  return rejection.reason
+})
 
 const expectRejection = (
   store: ConnectionStore["Service"],

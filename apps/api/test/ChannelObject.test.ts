@@ -3,7 +3,6 @@ import { ConnectionNotConfigured } from "@twitch-integrations/domain/ConnectionE
 import { songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as TestClock from "effect/testing/TestClock"
 import {
@@ -28,17 +27,16 @@ const helixScenario = (
 })
 
 /** The world at noon with Twitch authorized, its token fresh, and Helix accepting it. */
-const worldWithTwitch = (
+const worldWithTwitch = Effect.fnUntraced(function* (
   scenario: Omit<TwitchHelixScenario, "accessToken"> = {},
   options: WorldOptions = {},
-) =>
-  Effect.gen(function* () {
-    const world = yield* makeWorld(options)
-    yield* at("2026-09-11T12:00:00Z")
-    yield* world.stores.twitch.writeConnection(twitchConnection)
-    yield* world.providers.twitchHelix.set(helixScenario(scenario))
-    return world
-  })
+) {
+  const world = yield* makeWorld(options)
+  yield* at("2026-09-11T12:00:00Z")
+  yield* world.stores.twitch.writeConnection(twitchConnection)
+  yield* world.providers.twitchHelix.set(helixScenario(scenario))
+  return world
+})
 
 /** A request as a test names it: its method, and its URL with the query string. */
 const line = (request: ReceivedRequest) => `${request.method} ${request.url}`
@@ -337,8 +335,8 @@ describe("ChannelObject.reconcile", () => {
     Effect.gen(function* () {
       const world = yield* makeBroadcasterWorld
       yield* at("2026-09-11T12:00:00Z")
-      const exit = yield* Effect.exit(world.channel.reconcile())
-      assert.deepStrictEqual(exit, Exit.fail(new ConnectionNotConfigured({ provider: "twitch" })))
+      const failure = yield* Effect.flip(world.channel.reconcile())
+      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "twitch" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
       assert.deepStrictEqual(yield* world.channelStore.readReward, Option.none())
     }).pipe(Effect.scoped),
@@ -387,8 +385,8 @@ describe("ChannelObject construction", () => {
       yield* world.channelStore.writeReward({ ...songRequestReward, cost: 250 })
       const channel = yield* world.rebuildChannel
       // No Twitch Connection, so the start-up reconcile failed; the object still answers.
-      const exit = yield* Effect.exit(channel.reconcile())
-      assert.deepStrictEqual(exit, Exit.fail(new ConnectionNotConfigured({ provider: "twitch" })))
+      const failure = yield* Effect.flip(channel.reconcile())
+      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "twitch" }))
     }).pipe(Effect.scoped),
   )
 })

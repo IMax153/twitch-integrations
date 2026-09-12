@@ -16,8 +16,8 @@ const secret = "test-webhook-secret-0123"
 const origin = "https://stream.example"
 
 /** The Worker's handler over the configured secret, answering one Web request. */
-const send = (request: Request): Effect.Effect<Response> =>
-  Effect.gen(function* () {
+const send = Effect.fnUntraced(
+  function* (request: Request) {
     const handler = yield* EventSubHttp
     const response = yield* handler.pipe(
       Effect.provideService(
@@ -27,7 +27,9 @@ const send = (request: Request): Effect.Effect<Response> =>
       Effect.scoped,
     )
     return HttpServerResponse.toWeb(response)
-  }).pipe(Effect.provide(Layer.succeed(WebhookSecret, Redacted.make(secret))))
+  },
+  Effect.provide(Layer.succeed(WebhookSecret, Redacted.make(secret))),
+)
 
 /** The webhook path Twitch delivers to. */
 const webhookPath = "/eventsub/twitch"
@@ -90,30 +92,29 @@ const headerNames: Record<keyof MessageHeaders, string> = {
 let nextMessageId = 0
 
 /** A webhook message as Twitch would send it, signed with the configured secret, dated by the test clock. */
-const signedRequest = (message: OutgoingMessage): Effect.Effect<Request> =>
-  Effect.gen(function* () {
-    const now = yield* DateTime.now
-    const sentAt = message.age === undefined ? now : DateTime.subtractDuration(now, message.age)
-    nextMessageId += 1
-    const id = message.headers?.id ?? `message-${nextMessageId}`
-    const timestamp = message.headers?.timestamp ?? DateTime.formatIso(sentAt)
-    // The signature covers whatever ID and timestamp are actually sent, so an
-    // override of either still arrives correctly signed unless the test says otherwise.
-    const carried: Record<keyof MessageHeaders, string | undefined> = {
-      id,
-      timestamp,
-      type: message.type,
-      signature: sign(secret, id, timestamp, message.body),
-      ...message.headers,
+const signedRequest = Effect.fnUntraced(function* (message: OutgoingMessage) {
+  const now = yield* DateTime.now
+  const sentAt = message.age === undefined ? now : DateTime.subtractDuration(now, message.age)
+  nextMessageId += 1
+  const id = message.headers?.id ?? `message-${nextMessageId}`
+  const timestamp = message.headers?.timestamp ?? DateTime.formatIso(sentAt)
+  // The signature covers whatever ID and timestamp are actually sent, so an
+  // override of either still arrives correctly signed unless the test says otherwise.
+  const carried: Record<keyof MessageHeaders, string | undefined> = {
+    id,
+    timestamp,
+    type: message.type,
+    signature: sign(secret, id, timestamp, message.body),
+    ...message.headers,
+  }
+  const headers = new Headers({ "content-type": "application/json" })
+  for (const [name, value] of Object.entries(carried)) {
+    if (value !== undefined) {
+      headers.set(headerNames[name as keyof MessageHeaders], value)
     }
-    const headers = new Headers({ "content-type": "application/json" })
-    for (const [name, value] of Object.entries(carried)) {
-      if (value !== undefined) {
-        headers.set(headerNames[name as keyof MessageHeaders], value)
-      }
-    }
-    return new Request(`${origin}${webhookPath}`, { method: "POST", headers, body: message.body })
-  })
+  }
+  return new Request(`${origin}${webhookPath}`, { method: "POST", headers, body: message.body })
+})
 
 const challengeBody = (challenge: string) =>
   JSON.stringify({
@@ -121,11 +122,10 @@ const challengeBody = (challenge: string) =>
     subscription: { id: "sub-1", status: "webhook_callback_verification_pending" },
   })
 
-const assertEmpty = (response: Response, status: number) =>
-  Effect.gen(function* () {
-    assert.strictEqual(response.status, status)
-    assert.strictEqual(yield* Effect.promise(() => response.text()), "")
-  })
+const assertEmpty = Effect.fnUntraced(function* (response: Response, status: number) {
+  assert.strictEqual(response.status, status)
+  assert.strictEqual(yield* Effect.promise(() => response.text()), "")
+})
 
 describe("the receiver", () => {
   const unroutable: ReadonlyArray<[string, string]> = [

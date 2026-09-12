@@ -101,73 +101,64 @@ const rejectionResult: Record<AttemptRejectionReason, BroadcasterResult> = {
  * hosting: production wraps it in the class below, tests build it directly
  * over an in-memory store and fake Credentials.
  */
-export const makeConnectionObject = (
-  provider: ProviderName,
-): Effect.Effect<
-  ConnectionObjectShape,
-  never,
-  ConnectionStore | AuthorizationFlow | ConnectionLifecycle
-> =>
-  Effect.gen(function* () {
-    const store = yield* ConnectionStore
-    const flow = yield* AuthorizationFlow
-    const lifecycle = yield* ConnectionLifecycle
-    // A rebuilt object honours the schedule its predecessor stored.
-    yield* lifecycle.resumeSchedule
-    const summary = (connection: Option.Option<Connection>): ConnectionSummary =>
-      Option.match(connection, {
-        onNone: () => ({
-          provider,
-          status: "Not Configured",
-          connectedAccount: Option.none(),
-          scopes: [],
-          expiresAt: Option.none(),
-          nextRefreshAt: Option.none(),
-          lastRefreshError: Option.none(),
+export const makeConnectionObject = Effect.fnUntraced(function* (provider: ProviderName) {
+  const store = yield* ConnectionStore
+  const flow = yield* AuthorizationFlow
+  const lifecycle = yield* ConnectionLifecycle
+  // A rebuilt object honours the schedule its predecessor stored.
+  yield* lifecycle.resumeSchedule
+  const summary = (connection: Option.Option<Connection>): ConnectionSummary =>
+    Option.match(connection, {
+      onNone: () => ({
+        provider,
+        status: "Not Configured",
+        connectedAccount: Option.none(),
+        scopes: [],
+        expiresAt: Option.none(),
+        nextRefreshAt: Option.none(),
+        lastRefreshError: Option.none(),
+      }),
+      onSome: (connection) => ({
+        provider,
+        status: connection.status,
+        connectedAccount: Option.some(connection.connectedAccount),
+        scopes: connection.scopes,
+        expiresAt: Option.some(connection.expiresAt),
+        nextRefreshAt: connection.nextRefreshAt,
+        lastRefreshError: connection.lastRefreshError,
+      }),
+    })
+  const rejected = (rejection: AuthorizationAttemptRejected) =>
+    Effect.succeed(rejectionResult[rejection.reason])
+  return {
+    describe: () =>
+      store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary), observed),
+    startAuthorization: (broadcaster, callbackUri) =>
+      observed(flow.start(broadcaster, callbackUri)),
+    completeAuthorization: (claim, code) =>
+      flow.complete(claim, code).pipe(
+        Effect.as<BroadcasterResult>("connected"),
+        Effect.catchTags({
+          AuthorizationAttemptRejected: rejected,
+          ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
         }),
-        onSome: (connection) => ({
-          provider,
-          status: connection.status,
-          connectedAccount: Option.some(connection.connectedAccount),
-          scopes: connection.scopes,
-          expiresAt: Option.some(connection.expiresAt),
-          nextRefreshAt: connection.nextRefreshAt,
-          lastRefreshError: connection.lastRefreshError,
-        }),
-      })
-    const rejected = (rejection: AuthorizationAttemptRejected) =>
-      Effect.succeed(rejectionResult[rejection.reason])
-    return {
-      describe: () =>
-        store.readConnection.pipe(Effect.map(summary), Effect.flatMap(encodeSummary), observed),
-      startAuthorization: (broadcaster, callbackUri) =>
-        observed(flow.start(broadcaster, callbackUri)),
-      completeAuthorization: (claim, code) =>
-        flow.complete(claim, code).pipe(
-          Effect.as<BroadcasterResult>("connected"),
-          Effect.catchTags({
-            AuthorizationAttemptRejected: rejected,
-            ProviderRequestFailed: () => Effect.succeed("exchange-failed" as const),
-          }),
-          observed,
+        observed,
+      ),
+    // A denial after the Attempt expired is still the Broadcaster's denial:
+    // the expired Attempt cannot be used anyway, so the page reports what
+    // they did rather than how long they took.
+    abandonAuthorization: (claim) =>
+      flow.abandon(claim).pipe(
+        Effect.as<BroadcasterResult>("denied"),
+        Effect.catchTag("AuthorizationAttemptRejected", (rejection) =>
+          rejection.reason === "Expired" ? Effect.succeed("denied" as const) : rejected(rejection),
         ),
-      // A denial after the Attempt expired is still the Broadcaster's denial:
-      // the expired Attempt cannot be used anyway, so the page reports what
-      // they did rather than how long they took.
-      abandonAuthorization: (claim) =>
-        flow.abandon(claim).pipe(
-          Effect.as<BroadcasterResult>("denied"),
-          Effect.catchTag("AuthorizationAttemptRejected", (rejection) =>
-            rejection.reason === "Expired"
-              ? Effect.succeed("denied" as const)
-              : rejected(rejection),
-          ),
-          observed,
-        ),
-      getAccessToken: () => observed(Effect.map(lifecycle.requestAccessToken, Redacted.value)),
-      alarm: () => observed(lifecycle.runScheduledRefresh),
-    }
-  })
+        observed,
+      ),
+    getAccessToken: () => observed(Effect.map(lifecycle.requestAccessToken, Redacted.value)),
+    alarm: () => observed(lifecycle.runScheduledRefresh),
+  } satisfies ConnectionObjectShape
+})
 
 /**
  * The object's whole layer graph over a `SqlClient`, the Provider

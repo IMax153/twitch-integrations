@@ -100,15 +100,14 @@ const rejectionReason = (
 /** Times are stored as epoch milliseconds so SQLite compares them as integers. */
 const millis = DateTime.toEpochMillis
 
-const createTables = (sql: SqlClient.SqlClient) =>
-  Effect.gen(function* () {
-    yield* sql`
+const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+  yield* sql`
       CREATE TABLE IF NOT EXISTS connection (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         document TEXT NOT NULL
       )
     `
-    yield* sql`
+  yield* sql`
       CREATE TABLE IF NOT EXISTS authorization_attempt (
         state TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
@@ -120,8 +119,8 @@ const createTables = (sql: SqlClient.SqlClient) =>
         consumed INTEGER NOT NULL DEFAULT 0
       )
     `
-    yield* renameLegacyBroadcasterColumns(sql)
-  })
+  yield* renameLegacyBroadcasterColumns(sql)
+})
 
 interface ColumnRow {
   readonly name: string
@@ -132,15 +131,13 @@ interface ColumnRow {
  * the old column names; rename them in place so its Attempts keep working.
  * Runs every time the store builds and is a no-op once renamed.
  */
-const renameLegacyBroadcasterColumns = (sql: SqlClient.SqlClient) =>
-  Effect.gen(function* () {
-    const columns =
-      yield* sql<ColumnRow>`SELECT name FROM pragma_table_info('authorization_attempt')`
-    if (columns.some((column) => column.name === "operator_user_uuid")) {
-      yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_user_uuid TO broadcaster_user_uuid`
-      yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_email TO broadcaster_email`
-    }
-  })
+const renameLegacyBroadcasterColumns = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+  const columns = yield* sql<ColumnRow>`SELECT name FROM pragma_table_info('authorization_attempt')`
+  if (columns.some((column) => column.name === "operator_user_uuid")) {
+    yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_user_uuid TO broadcaster_user_uuid`
+    yield* sql`ALTER TABLE authorization_attempt RENAME COLUMN operator_email TO broadcaster_email`
+  }
+})
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
@@ -161,14 +158,15 @@ const make = Effect.gen(function* () {
       return Option.some(connection)
     }).pipe(Effect.orDie),
 
-    writeConnection: (connection) =>
-      Effect.gen(function* () {
-        const document = yield* encodeDocument(connection)
-        yield* sql`
-          INSERT INTO connection (id, document) VALUES (1, ${document})
-          ON CONFLICT (id) DO UPDATE SET document = excluded.document
-        `
-      }).pipe(Effect.orDie),
+    writeConnection: Effect.fn("ConnectionStore.writeConnection")(function* (
+      connection: Connection,
+    ) {
+      const document = yield* encodeDocument(connection)
+      yield* sql`
+        INSERT INTO connection (id, document) VALUES (1, ${document})
+        ON CONFLICT (id) DO UPDATE SET document = excluded.document
+      `
+    }, Effect.orDie),
 
     createAttempt: (attempt) =>
       sql`
@@ -188,8 +186,8 @@ const make = Effect.gen(function* () {
     // consume the same Attempt: SQLite runs the statement atomically and only
     // the first matches the unconsumed row. The SELECT that explains a miss
     // runs after, so a claim that lost such a race reads the row as consumed.
-    consumeAttempt: (claim) =>
-      Effect.gen(function* () {
+    consumeAttempt: Effect.fn("ConnectionStore.consumeAttempt")(
+      function* (claim: AttemptClaim) {
         const now = yield* DateTime.now
         const consumed = yield* sql<ConsumedRow>`
           UPDATE authorization_attempt SET consumed = 1
@@ -212,7 +210,9 @@ const make = Effect.gen(function* () {
         return yield* new AuthorizationAttemptRejected({
           reason: rejectionReason(claim, rows[0], now),
         })
-      }).pipe(Effect.catchTag("SqlError", Effect.die)),
+      },
+      Effect.catchTag("SqlError", Effect.die),
+    ),
   }
   return store
 })

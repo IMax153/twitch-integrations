@@ -84,7 +84,8 @@ interface OAuthRequest {
 
 /**
  * Runs an OAuth route once its Provider and Broadcaster resolve, answering
- * 404 for an unknown Provider and 403 for an incomplete Access identity.
+ * 404 for an unknown Provider and 403 for an incomplete Access identity. An
+ * arrow rather than `Effect.fn`, which cannot carry the type parameters.
  */
 const oauthRoute = <E, R>(
   respond: (request: OAuthRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
