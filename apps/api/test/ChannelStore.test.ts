@@ -1,12 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
-import type { Redemption } from "@twitch-integrations/domain/Redemption"
-import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
-import { songRequestReward, storedSubscriptions } from "./fixtures.ts"
+import { redemptionOf, songRequestReward, storedSubscriptions } from "./fixtures.ts"
 
 /** A fresh in-memory database per test, running the real store over it. */
 const storeLayer = ChannelStore.layer.pipe(
@@ -72,14 +70,7 @@ describe("ChannelStore", () => {
 })
 
 describe("ChannelStore processing queue", () => {
-  const redemption = (id: string): Redemption => ({
-    id,
-    rewardId: "reward-1",
-    viewerId: "viewer-1",
-    viewerName: "viewer",
-    input: `spotify:track:${id}`,
-    redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
-  })
+  const redemption = (id: string) => redemptionOf("reward-1", `spotify:track:${id}`, id)
 
   it.effect("hands Redemptions back oldest first and drops each once removed", () =>
     withStore((store) =>

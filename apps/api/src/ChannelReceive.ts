@@ -71,7 +71,7 @@ const make = Effect.gen(function* () {
     return true
   })
 
-  /** Queues a Redemption of the Reward for processing once this call has returned; one of any other reward is not the Channel's. */
+  /** Puts a Redemption of the Reward on the Processing Queue; one of any other reward is not the Channel's. */
   const enqueue = Effect.fnUntraced(function* (redemption: Redemption) {
     const reward = yield* store.readReward
     if (Option.isNone(reward) || reward.value.id !== redemption.rewardId) {
@@ -109,7 +109,8 @@ const make = Effect.gen(function* () {
       }
     },
     (self) => lock.withPermit(self),
-    // Any notification is a chance to finish Redemptions left queued when the object last stopped.
+    // Once the lock is free: the Redemption just queued is processed, and so
+    // are any left queued when the object last stopped.
     Effect.andThen(queue.kick),
   )
 

@@ -12,9 +12,9 @@ import { ChannelStore } from "./ChannelStore.ts"
 import { SongRequests } from "./SongRequests.ts"
 
 export interface RedemptionQueueService {
-  /** Appends the Redemption to the stored processing queue, returning once the append is durable, and starts draining. */
+  /** Appends the Redemption to the stored Processing Queue, returning once the append is durable. */
   readonly enqueue: (redemption: Redemption) => Effect.Effect<void>
-  /** Starts draining whatever the stored queue holds, without waiting for it. */
+  /** Starts draining whatever the Processing Queue holds, without waiting for it. */
   readonly kick: Effect.Effect<void>
   /** Returns once every drain started so far has run out of Redemptions to process. */
   readonly settled: Effect.Effect<void>
@@ -65,7 +65,6 @@ const make = Effect.gen(function* () {
     function* (redemption) {
       yield* store.enqueueRedemption(redemption)
       yield* Effect.logInfo(`Queued Redemption ${redemption.id} from ${redemption.viewerName}`)
-      yield* kick
     },
   )
 
@@ -73,7 +72,7 @@ const make = Effect.gen(function* () {
 })
 
 /**
- * The Channel's processing queue: Redemptions of the Reward, stored on
+ * The Channel's Processing Queue: Redemptions of the Reward, stored on
  * arrival and processed one at a time in that order under the Channel's
  * lock, on the object itself and after the receiver has been answered.
  */

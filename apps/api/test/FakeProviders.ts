@@ -1,5 +1,6 @@
 import type { ConnectedAccount } from "@twitch-integrations/domain/ConnectedAccount"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import type { Track } from "@twitch-integrations/domain/SongRequestReply"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -102,12 +103,6 @@ export interface SpotifyAccountsScenario extends WithLatency {
   readonly token: TokenEndpoint
 }
 
-/** A track as the fake Spotify knows it. */
-export interface SpotifyTrackRecord {
-  readonly name: string
-  readonly artists: ReadonlyArray<string>
-}
-
 /**
  * How the Spotify Web API answers: the access token it accepts, or none
  * while nothing has been granted, whose account that is, and the tracks it
@@ -116,7 +111,7 @@ export interface SpotifyTrackRecord {
 export interface SpotifyWebScenario extends WithLatency {
   readonly accessToken: Option.Option<string>
   readonly account: ConnectedAccount
-  readonly tracks?: Readonly<Record<string, SpotifyTrackRecord>>
+  readonly tracks?: Readonly<Record<string, Track>>
 }
 
 export interface FakeProvidersService {

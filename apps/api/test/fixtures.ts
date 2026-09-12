@@ -3,10 +3,11 @@ import type { Connection } from "@twitch-integrations/domain/Connection"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
+import type { Redemption } from "@twitch-integrations/domain/Redemption"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
-import type { ProviderScenario, TokenGrant } from "./FakeProviders.ts"
+import type { ProviderScenario, SpotifyWebScenario, TokenGrant } from "./FakeProviders.ts"
 
 export const broadcaster: BroadcasterIdentity = {
   userUuid: "8d5c1a1e-4b7e-4d2b-9c1a-2f3e4d5c6b7a",
@@ -109,3 +110,31 @@ export const twitchConnection: Connection = {
   scopes: ["channel:manage:redemptions", "user:write:chat"],
   connectedAccount: { id: "twitch-user-1", displayName: "max" },
 }
+
+/** A Redemption of the reward with the ID, which may or may not be the Reward's, with the input the viewer typed. */
+export const redemptionOf = (
+  rewardId: string,
+  input = "spotify:track:abc",
+  id = "redemption-1",
+): Redemption => ({
+  id,
+  rewardId,
+  viewerId: "viewer-1",
+  viewerName: "viewer",
+  input,
+  redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
+})
+
+/** The one track the tests request most, by its Spotify ID. */
+export const neverGonnaId = "4uLU6hMCjMI75M1A2tKUQC"
+
+/** The Spotify Web API accepting the stored Connection's token and knowing the tracks, "Never Gonna Give You Up" unless the test says otherwise. */
+export const spotifyWithTracks = (
+  tracks: SpotifyWebScenario["tracks"] = {
+    [neverGonnaId]: { name: "Never Gonna Give You Up", artists: ["Rick Astley"] },
+  },
+): SpotifyWebScenario => ({
+  accessToken: Option.some("access-token-1"),
+  account: { id: "spotify-user-1", displayName: "Max" },
+  tracks,
+})

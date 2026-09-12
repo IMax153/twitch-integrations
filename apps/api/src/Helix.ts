@@ -11,7 +11,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
-import { type ProviderFailureReason, failureReason } from "./Provider.ts"
+import { type ProviderFailureReason, failureReason, refusalDetail } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 
 export type HelixOperation =
@@ -43,16 +43,10 @@ const HelixError = Schema.Struct({ message: Schema.String }).annotate({ identifi
 
 const readHelixError = HttpClientResponse.schemaBodyJson(HelixError)
 
-/** Twitch's message for a refused request, or none when the failure was not a refusal or carried no message. */
-const helixMessage = (
-  cause: HttpClientError.HttpClientError | Schema.SchemaError,
-): Effect.Effect<Option.Option<string>> =>
-  cause._tag === "HttpClientError" && cause.reason._tag === "StatusCodeError"
-    ? readHelixError(cause.reason.response).pipe(
-        Effect.map((body) => Option.some(body.message)),
-        Effect.orElseSucceed(Option.none),
-      )
-    : Effect.succeed(Option.none())
+/** Twitch's message for a refused request, when it gave one. */
+const helixMessage = refusalDetail((response) =>
+  Effect.map(readHelixError(response), (body) => body.message),
+)
 
 /** An Event Subscription as Helix reports it. */
 export interface HelixEventSubscription {

@@ -9,7 +9,9 @@ import { testTransport } from "../../api/test/BroadcasterHarness.ts"
 import {
   authorizedConnection,
   manageableSongRequest,
+  neverGonnaId,
   songRequestReward,
+  spotifyWithTracks,
   storedSubscriptions,
   twitchConnection,
 } from "../../api/test/fixtures.ts"
@@ -198,13 +200,7 @@ const worldLiveWithSpotify = Effect.fnUntraced(function* () {
   const world = yield* worldWithReward(false)
   yield* world.channelStore.writeState("Live")
   yield* world.stores.spotify.writeConnection(authorizedConnection)
-  yield* world.providers.spotifyWeb.set({
-    accessToken: Option.some("access-token-1"),
-    account: { id: "spotify-user-1", displayName: "Max" },
-    tracks: {
-      "4uLU6hMCjMI75M1A2tKUQC": { name: "Never Gonna Give You Up", artists: ["Rick Astley"] },
-    },
-  })
+  yield* world.providers.spotifyWeb.set(spotifyWithTracks())
   return world
 })
 
@@ -506,7 +502,7 @@ describe("the receiver and the Channel", () => {
           type: "notification",
           body: redemptionBody(
             "reward-1",
-            "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=share-token",
+            `https://open.spotify.com/track/${neverGonnaId}?si=share-token`,
           ),
         })
         yield* assertAccepted(yield* world.receive(request))
@@ -517,8 +513,8 @@ describe("the receiver and the Channel", () => {
         assert.deepStrictEqual(
           requests.map((received) => `${received.method} ${received.url}`),
           [
-            "POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A4uLU6hMCjMI75M1A2tKUQC",
-            "GET https://api.spotify.com/v1/tracks/4uLU6hMCjMI75M1A2tKUQC",
+            `POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${neverGonnaId}`,
+            `GET https://api.spotify.com/v1/tracks/${neverGonnaId}`,
             `PATCH ${rewardsUrl}/redemptions?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`,
             "POST https://api.twitch.tv/helix/chat/messages",
           ],

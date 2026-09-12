@@ -32,11 +32,11 @@ export interface ChannelStoreService {
   readonly recordNotification: (messageId: string, receivedAt: DateTime.Utc) => Effect.Effect<void>
   /** Forgets every Notification received before the cutoff. */
   readonly forgetNotificationsBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
-  /** Appends a Redemption to the processing queue; one already queued keeps its place. */
+  /** Appends a Redemption to the Processing Queue; one already queued keeps its place. */
   readonly enqueueRedemption: (redemption: Redemption) => Effect.Effect<void>
-  /** The Redemption that has waited longest in the processing queue, or none while it is empty. */
+  /** The Redemption that has waited longest in the Processing Queue, or none while it is empty. */
   readonly nextRedemption: Effect.Effect<Option.Option<Redemption>>
-  /** Takes the Redemption with the ID out of the processing queue. */
+  /** Takes the Redemption with the ID out of the Processing Queue. */
   readonly removeRedemption: (redemptionId: string) => Effect.Effect<void>
 }
 
@@ -224,8 +224,8 @@ const make = Effect.gen(function* () {
 
 /**
  * Persistence for the Channel: its Reward, its state, its Event
- * Subscriptions, the message IDs it has processed lately, and the
- * Redemptions waiting to be processed, written against the generic `SqlClient` so the same code
+ * Subscriptions, the message IDs it has processed lately, and its
+ * Processing Queue, written against the generic `SqlClient` so the same code
  * runs over Durable Object storage in production and over an in-memory
  * database in tests. As in the Connection store, storage failures and
  * malformed rows are defects.

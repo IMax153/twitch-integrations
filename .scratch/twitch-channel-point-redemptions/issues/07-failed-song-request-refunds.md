@@ -13,3 +13,7 @@
 - [ ] A chat send failure or an is_sent false response is logged and the Redemption's outcome is unchanged
 - [ ] A fulfil that fails is retried three times under the TestClock, and after the last failure the Redemption is left unfulfilled with a log line, never cancelled
 - [ ] Tests cover every outcome through the receiver over the fake APIs
+
+## Comments
+
+Note from ticket 06 (2026-09-12): `SongRequests.process` already decides every cancellation reason (`NotQueued` carries it) and only logs it; this ticket turns that into the cancel call and the reply, with `replyTo` in the domain package already holding the wording. Each Redemption is processed under the `ChannelLock` that `receive` also takes, so the fulfil retries' waits delay the acknowledgement of any notification arriving meanwhile; keep the three waits short enough that their sum stays well inside Twitch's response deadline, or narrow the lock to the Processing Queue reads and the state read.

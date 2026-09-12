@@ -8,8 +8,9 @@ import * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import type { Track } from "@twitch-integrations/domain/SongRequestReply"
 import type { AccessToken } from "./Helix.ts"
-import { type ProviderFailureReason, failureReason } from "./Provider.ts"
+import { type ProviderFailureReason, failureReason, refusalDetail } from "./Provider.ts"
 
 export type SpotifyOperation = "add to queue" | "get track"
 
@@ -28,12 +29,6 @@ export class SpotifyRequestFailed extends Data.TaggedError("SpotifyRequestFailed
 
 /** Spotify's reason code when no device is playing, which the player endpoints answer with. */
 export const noActiveDevice = "NO_ACTIVE_DEVICE"
-
-/** A track as the Channel names it in chat: its name and its artists' names. */
-export interface Track {
-  readonly name: string
-  readonly artists: ReadonlyArray<string>
-}
 
 export interface SpotifyService {
   /** Adds the track to the queue of the Connected Account's active device. */
@@ -71,16 +66,10 @@ const TrackWire = Schema.Struct({
 
 const readTrack = HttpClientResponse.schemaBodyJson(TrackWire)
 
-/** Spotify's account of a refused request, or none when the failure was not a refusal or carried none. */
-const spotifyDetail = (
-  cause: HttpClientError.HttpClientError | Schema.SchemaError,
-): Effect.Effect<Option.Option<string>> =>
-  cause._tag === "HttpClientError" && cause.reason._tag === "StatusCodeError"
-    ? readSpotifyError(cause.reason.response).pipe(
-        Effect.map((body) => Option.some(body.error.reason ?? body.error.message)),
-        Effect.orElseSucceed(Option.none),
-      )
-    : Effect.succeed(Option.none())
+/** Spotify's reason code for a player refusal, else its message, when it gave one. */
+const spotifyDetail = refusalDetail((response) =>
+  Effect.map(readSpotifyError(response), (body) => body.error.reason ?? body.error.message),
+)
 
 /** The URI Spotify's queue endpoint takes for a track. */
 const trackUri = (trackId: string) => `spotify:track:${trackId}`

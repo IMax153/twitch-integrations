@@ -122,6 +122,28 @@ export const failureReason = (
   }
 }
 
+/**
+ * The Provider's own account of a refused request, read from the error
+ * body with the given reader, or none when the failure was not a refusal or
+ * the body carried none. Shared by the Helix and Spotify clients, whose
+ * error bodies differ only in shape.
+ */
+export const refusalDetail =
+  (
+    readDetail: (
+      response: HttpClientResponse.HttpClientResponse,
+    ) => Effect.Effect<string, HttpClientError.HttpClientError | Schema.SchemaError>,
+  ) =>
+  (
+    cause: HttpClientError.HttpClientError | Schema.SchemaError,
+  ): Effect.Effect<Option.Option<string>> =>
+    cause._tag === "HttpClientError" && cause.reason._tag === "StatusCodeError"
+      ? readDetail(cause.reason.response).pipe(
+          Effect.map(Option.some),
+          Effect.orElseSucceed(Option.none),
+        )
+      : Effect.succeed(Option.none())
+
 export interface ProviderService extends ProviderDescription {
   readonly credentials: Credentials
   /** Submits the authorization code grant; the callback URI must match the one consent was started with. */

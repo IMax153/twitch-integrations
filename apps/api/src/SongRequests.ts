@@ -1,16 +1,22 @@
 import type { CancellationReason } from "@twitch-integrations/domain/RedemptionOutcome"
 import type { Redemption } from "@twitch-integrations/domain/Redemption"
 import { parseSongRequestInput } from "@twitch-integrations/domain/SongRequestInput"
-import { describeTrack, replyTo } from "@twitch-integrations/domain/SongRequestReply"
+import {
+  type QueuedTrack,
+  describeTrack,
+  replyTo,
+  trackPageLink,
+} from "@twitch-integrations/domain/SongRequestReply"
 import { logFailure, observed } from "@twitch-integrations/infra/Failure"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import { ChannelStore } from "./ChannelStore.ts"
 import { Connections } from "./Connections.ts"
-import { Helix } from "./Helix.ts"
+import { type AccessToken, Helix } from "./Helix.ts"
 import { Spotify, noActiveDevice } from "./Spotify.ts"
 import { TwitchAccess } from "./TwitchAccess.ts"
 
@@ -27,6 +33,12 @@ export interface SongRequestsService {
 class NotQueued extends Data.TaggedError("NotQueued")<{ readonly reason: CancellationReason }> {}
 
 const notQueued = (reason: CancellationReason) => new NotQueued({ reason })
+
+/** A track added to the Spotify queue, and the token it was added under for the lookup that follows. */
+interface Queued {
+  readonly token: AccessToken
+  readonly trackId: string
+}
 
 const make = Effect.gen(function* () {
   const store = yield* ChannelStore
@@ -48,7 +60,9 @@ const make = Effect.gen(function* () {
    * queued, or fails with why nothing was: the channel is Offline, the input
    * is not a track link, Spotify cannot be reached, or nothing is playing.
    */
-  const queueTrack = Effect.fn("SongRequests.queueTrack")(function* (redemption: Redemption) {
+  const queueTrack = Effect.fn("SongRequests.queueTrack")(function* (
+    redemption: Redemption,
+  ): Generator<Effect.Effect<unknown, NotQueued>, Queued> {
     if ((yield* store.readState) === "Offline") {
       return yield* notQueued("Offline")
     }
@@ -66,12 +80,12 @@ const make = Effect.gen(function* () {
     return { token, trackId: input.trackId }
   })
 
-  /** How the queued track is named in chat: by name and artists, or by the link the viewer pasted when the lookup fails. */
-  const nameTrack = Effect.fn("SongRequests.nameTrack")(function* (
-    redemption: Redemption,
-    { token, trackId }: Effect.Success<ReturnType<typeof queueTrack>>,
-  ) {
-    const link = redemption.input.trim()
+  /** How the queued track is named in chat: by name and artists, or by its link when the lookup fails. */
+  const nameTrack = Effect.fn("SongRequests.nameTrack")(function* ({
+    token,
+    trackId,
+  }: Queued): Generator<Effect.Effect<unknown>, QueuedTrack> {
+    const link = trackPageLink(trackId)
     const description = yield* spotify.getTrack(token, trackId).pipe(
       Effect.map(describeTrack),
       Effect.tapError(logFailure),
@@ -83,7 +97,7 @@ const make = Effect.gen(function* () {
   /** Fulfils the queued Redemption on Twitch and tells the viewer, each as the Twitch Connected Account. */
   const fulfil = Effect.fn("SongRequests.fulfil")(function* (
     redemption: Redemption,
-    track: { readonly description: string; readonly link: string },
+    track: QueuedTrack,
   ) {
     const grant = yield* access.current
     yield* helix.updateRedemptionStatus(
@@ -97,9 +111,8 @@ const make = Effect.gen(function* () {
     const message = replyTo(redemption.viewerName, { _tag: "Fulfilled" }, track)
     const sent = yield* helix.sendChatMessage(grant.token, grant.account, message)
     if (!sent.isSent) {
-      yield* Effect.logWarning(
-        `Twitch dropped the reply to ${redemption.viewerName}: ${sent.dropReason._tag === "Some" ? sent.dropReason.value : "no reason given"}`,
-      )
+      const reason = Option.getOrElse(sent.dropReason, () => "no reason given")
+      yield* Effect.logWarning(`Twitch dropped the reply to ${redemption.viewerName}: ${reason}`)
     }
   })
 
@@ -112,7 +125,7 @@ const make = Effect.gen(function* () {
         )
         return
       }
-      const track = yield* nameTrack(redemption, queued.success)
+      const track = yield* nameTrack(queued.success)
       yield* fulfil(redemption, track).pipe(observed, Effect.ignore)
     },
   )
