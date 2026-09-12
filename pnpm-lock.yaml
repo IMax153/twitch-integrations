@@ -163,6 +163,10 @@ importers:
       effect:
         specifier: 4.0.0-rc.113
         version: 4.0.0-rc.113
+    devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)(vitest@4.1.11)
 
   apps/web:
     dependencies:

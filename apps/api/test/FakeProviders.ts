@@ -89,6 +89,8 @@ export interface TwitchHelixScenario extends WithLatency {
   readonly manageableRewards?: ReadonlyArray<HelixRewardRecord>
   /** The ID Helix gives the next created reward. */
   readonly createdRewardId?: string
+  /** How Helix refuses a reward create, when it does, as Twitch words it. */
+  readonly rewardCreateRefusal?: { readonly status: number; readonly message: string }
   /** The Event Subscriptions this client ID owns; none unless the test says so. */
   readonly eventSubscriptions?: ReadonlyArray<HelixEventSubscriptionRecord>
   /** Whether Get Streams reports the Broadcaster live. */
@@ -318,7 +320,13 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
         : respond(400, { error: "Bad Request", message: "only manageable rewards are faked" }),
     ),
     "POST /helix/channel_points/custom_rewards": userEndpoint((scenario, received) =>
-      respond(200, { data: [updatedReward(createdReward(scenario), asRecord(received.json))] }),
+      scenario.rewardCreateRefusal === undefined
+        ? respond(200, { data: [updatedReward(createdReward(scenario), asRecord(received.json))] })
+        : respond(scenario.rewardCreateRefusal.status, {
+            error: "Bad Request",
+            status: scenario.rewardCreateRefusal.status,
+            message: scenario.rewardCreateRefusal.message,
+          }),
     ),
     "PATCH /helix/channel_points/custom_rewards": userEndpoint((scenario, received) => {
       const id = query(received).get("id")
