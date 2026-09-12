@@ -24,6 +24,7 @@ Copy `.env.example` to `.env` and fill in every value. The same file serves loca
 | `TWITCH_BROADCASTER_EMAIL`                                                     | The one email the Access policy admits. Under `alchemy dev` it is also the simulated Access identity.              |
 | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`                                   | The Spotify developer application. One application serves local and production; register both callback URIs on it. |
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`                                     | The Twitch developer application. One application serves local and production; register both callback URIs on it.  |
+| `TWITCH_EVENTSUB_SECRET`                                                       | The secret Twitch signs EventSub webhook messages with: any ASCII string of 10 to 100 characters you choose.       |
 
 Alchemy's own Cloudflare login lives outside the repo, in `~/.alchemy`. If it is missing, connect Cloudflare to the default profile once per machine:
 
@@ -48,16 +49,28 @@ Spotify accepts plain HTTP only for loopback IP literals, so open the local page
 vp run dev
 ```
 
-This runs `alchemy dev` on the stack in `alchemy.run.ts` with no stage flag, so Alchemy uses its per-user dev stage and local Durable Object storage, separate from production. The dev stage creates no Cloudflare Access resources; each Worker's simulated Access identity stands in for them. Two local servers start:
+This runs `alchemy dev` on the stack in `alchemy.run.ts` with no stage flag, so Alchemy uses its per-user dev stage and local Durable Object storage, separate from production. The dev stage creates no Cloudflare Access resources; each Worker's simulated Access identity stands in for them. Three local servers start:
 
 - The API Worker on `127.0.0.1:1337`, with a simulated Access identity for `TWITCH_BROADCASTER_EMAIL`.
 - The Broadcaster Page on `127.0.0.1:5173`, which proxies `/setup/api` and `/oauth` to the API Worker.
+- The EventSub receiver on `127.0.0.1:1338`, answering `POST /eventsub/twitch` and nothing else.
 
 Open `http://127.0.0.1:5173/setup`, press Connect for each Provider, and complete consent. The page should show each Connection as Authorized with the expected Connected Account, the token expiry, and the next scheduled refresh. If a Provider reports a redirect URI mismatch, the origin the API Worker derived differs from the one you registered; the proxy in `apps/web/vite.config.ts` is where to look.
 
 ### Verifying a refresh locally
 
 A refresh is scheduled five minutes before the access token expires. Twitch access tokens last a few hours and Spotify's last one hour, so either leave the dev server running until the next refresh time shown on the page passes and reload, or drive the lifecycle in tests instead: `apps/api/test/ConnectionObject.test.ts` runs the alarm handler under a test clock through every refresh outcome without reaching a live Provider.
+
+### Driving the receiver locally
+
+No production Event Subscription ever points at a local receiver. Instead the [Twitch CLI](https://dev.twitch.tv/docs/cli/) sends signed test messages to it. With the dev server running and `TWITCH_EVENTSUB_SECRET` set in `.env`, verify the challenge handshake:
+
+```sh
+twitch event verify-subscription channel.channel_points_custom_reward_redemption.add \
+  -F http://127.0.0.1:1338/eventsub/twitch -s "$TWITCH_EVENTSUB_SECRET"
+```
+
+The CLI reports a valid challenge, `text/plain`, and status 200. A notification is sent the same way with `twitch event trigger <type>` and is acknowledged with 204. With Nix, `nix run nixpkgs#twitch-cli -- event ...` runs the CLI without installing it.
 
 ## Deployment
 
@@ -77,6 +90,7 @@ The deployed shape is described in [ADR 0002](docs/adr/0002-two-workers-on-one-c
 
 - `apps/api` is the API Worker: the OAuth routes, the Connection Durable Object, and the JSON the page reads.
 - `apps/web` is the Broadcaster Page, a Foldkit application built under `/setup/`.
+- `apps/eventsub` is the receiver: the one public Worker, on `/eventsub*`, that verifies Twitch's EventSub webhook messages.
 - `apps/infra` holds the Cloudflare Access application and the shared hostname.
 - `packages/domain` holds the Effect Schemas shared by the apps.
 - `tools/*` contains workspace tools.

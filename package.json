@@ -13,6 +13,7 @@
     "@effect/tsgo": "catalog:",
     "@foldkit/oxlint-plugin": "catalog:",
     "@twitch-integrations/api": "workspace:^",
+    "@twitch-integrations/eventsub": "workspace:^",
     "@twitch-integrations/infra": "workspace:^",
     "@types/node": "catalog:",
     "alchemy": "catalog:",

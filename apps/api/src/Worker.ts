@@ -5,10 +5,10 @@ import {
   devHost,
   zoneName,
 } from "@twitch-integrations/infra/Domain"
+import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import { Connections } from "./Connections.ts"
-import { observed } from "./Failure.ts"
 import { BroadcasterHttp } from "./BroadcasterRoutes.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 
