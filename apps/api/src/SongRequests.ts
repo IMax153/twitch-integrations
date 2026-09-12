@@ -3,8 +3,9 @@ import type { Redemption } from "@twitch-integrations/domain/Redemption"
 import { parseSongRequestInput } from "@twitch-integrations/domain/SongRequestInput"
 import {
   type QueuedTrack,
+  cancelledReply,
   describeTrack,
-  replyTo,
+  fulfilledReply,
   trackPageLink,
 } from "@twitch-integrations/domain/SongRequestReply"
 import { logFailure, observed } from "@twitch-integrations/infra/Failure"
@@ -14,11 +15,12 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
+import * as Schedule from "effect/Schedule"
 import { ChannelStore } from "./ChannelStore.ts"
 import { Connections } from "./Connections.ts"
-import { type AccessToken, Helix } from "./Helix.ts"
+import { type AccessToken, Helix, type RedemptionStatus } from "./Helix.ts"
 import { Spotify, noActiveDevice } from "./Spotify.ts"
-import { TwitchAccess } from "./TwitchAccess.ts"
+import { TwitchAccess, type TwitchAccessGrant } from "./TwitchAccess.ts"
 
 export interface SongRequestsService {
   /**
@@ -33,6 +35,14 @@ export interface SongRequestsService {
 class NotQueued extends Data.TaggedError("NotQueued")<{ readonly reason: CancellationReason }> {}
 
 const notQueued = (reason: CancellationReason) => new NotQueued({ reason })
+
+/**
+ * How a fulfil that fails is tried again: three more times, each after a
+ * short wait. The waits run under the Channel's lock, so their sum stays
+ * well inside the few seconds Twitch gives a notification that arrives
+ * meanwhile to be acknowledged.
+ */
+const fulfilRetries = Schedule.max([Schedule.recurs(3), Schedule.spaced("500 millis")])
 
 /** A track added to the Spotify queue, and the token it was added under for the lookup that follows. */
 interface Queued {
@@ -94,35 +104,73 @@ const make = Effect.gen(function* () {
     return { description, link }
   })
 
-  /** Fulfils the queued Redemption on Twitch and tells the viewer, each as the Twitch Connected Account. */
+  /**
+   * Tells the viewer in chat as the Twitch Connected Account. A reply that
+   * fails to send, or that Twitch does not show, is logged and nothing more:
+   * chat trouble never changes what happened to the Redemption.
+   */
+  const reply = Effect.fn("SongRequests.reply")(
+    function* (grant: TwitchAccessGrant, redemption: Redemption, message: string) {
+      const sent = yield* helix.sendChatMessage(grant.token, grant.account, message)
+      if (!sent.isSent) {
+        const reason = Option.getOrElse(sent.dropReason, () => "no reason given")
+        yield* Effect.logWarning(`Twitch dropped the reply to ${redemption.viewerName}: ${reason}`)
+      }
+    },
+    (sending) => sending.pipe(observed, Effect.ignore),
+  )
+
+  /** Ends the Redemption on Twitch one way or the other, as the Twitch Connected Account. */
+  const end = (grant: TwitchAccessGrant, redemption: Redemption, status: RedemptionStatus) =>
+    helix.updateRedemptionStatus(
+      grant.token,
+      grant.account,
+      redemption.rewardId,
+      redemption.id,
+      status,
+    )
+
+  /** Cancels the Redemption on Twitch, which refunds the viewer, and tells them why. */
+  const cancel = Effect.fn("SongRequests.cancel")(function* (
+    redemption: Redemption,
+    reason: CancellationReason,
+  ) {
+    const grant = yield* access.current
+    yield* end(grant, redemption, "CANCELED")
+    yield* Effect.logInfo(
+      `Cancelled Redemption ${redemption.id} from ${redemption.viewerName}: ${reason}`,
+    )
+    yield* reply(grant, redemption, cancelledReply(redemption.viewerName, reason))
+  })
+
+  /**
+   * Fulfils the queued Redemption on Twitch and tells the viewer what was
+   * queued. A fulfil that keeps failing is given up on and the Redemption
+   * left unfulfilled, never cancelled: the viewer got their song.
+   */
   const fulfil = Effect.fn("SongRequests.fulfil")(function* (
     redemption: Redemption,
     track: QueuedTrack,
   ) {
     const grant = yield* access.current
-    yield* helix.updateRedemptionStatus(
-      grant.token,
-      grant.account,
-      redemption.rewardId,
-      redemption.id,
-      "FULFILLED",
+    yield* end(grant, redemption, "FULFILLED").pipe(
+      Effect.tapError(logFailure),
+      Effect.retry(fulfilRetries),
+      Effect.tapError(() =>
+        Effect.logWarning(
+          `Left Redemption ${redemption.id} from ${redemption.viewerName} unfulfilled: Twitch kept refusing`,
+        ),
+      ),
     )
     yield* Effect.logInfo(`Fulfilled Redemption ${redemption.id}: queued ${track.description}`)
-    const message = replyTo(redemption.viewerName, { _tag: "Fulfilled" }, track)
-    const sent = yield* helix.sendChatMessage(grant.token, grant.account, message)
-    if (!sent.isSent) {
-      const reason = Option.getOrElse(sent.dropReason, () => "no reason given")
-      yield* Effect.logWarning(`Twitch dropped the reply to ${redemption.viewerName}: ${reason}`)
-    }
+    yield* reply(grant, redemption, fulfilledReply(redemption.viewerName, track))
   })
 
   const process: SongRequestsService["process"] = Effect.fn("SongRequests.process")(
     function* (redemption) {
       const queued = yield* Effect.result(queueTrack(redemption))
       if (Result.isFailure(queued)) {
-        yield* Effect.logInfo(
-          `Song Request ${redemption.id} from ${redemption.viewerName} was not queued: ${queued.failure.reason}`,
-        )
+        yield* cancel(redemption, queued.failure.reason).pipe(observed, Effect.ignore)
         return
       }
       const track = yield* nameTrack(queued.success)

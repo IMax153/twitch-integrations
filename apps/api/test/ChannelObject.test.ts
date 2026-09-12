@@ -704,3 +704,75 @@ describe("ChannelObject.receive of a Song Request", () => {
     }).pipe(Effect.scoped),
   )
 })
+
+/** Every update of the Redemption's status Helix received. */
+const redemptionUpdates = (world: BroadcasterWorld) =>
+  Effect.map(helixRequests(world), (requests) =>
+    requests.filter((request) => request.url.startsWith(redemptionsUrl)),
+  )
+
+const chatReplies = (world: BroadcasterWorld) =>
+  Effect.map(helixRequests(world), (requests) =>
+    requests.filter((request) => request.url === chatUrl),
+  )
+
+describe("ChannelObject.receive of a Song Request whose fulfil fails", () => {
+  it.effect("retries three times with a short wait each, then leaves it unfulfilled", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.providers.twitchHelix.set(
+        helixScenario({
+          manageableRewards: [manageableSongRequest],
+          redemptionUpdateRefusals: Infinity,
+        }),
+      )
+      yield* world.channel.receive(
+        notification("message-1", redemptionAdded("reward-1", `spotify:track:${neverGonnaId}`)),
+      )
+      // The first attempt is made at once; each retry waits half a second.
+      yield* TestClock.adjust("0 millis")
+      assert.lengthOf(yield* redemptionUpdates(world), 1)
+      yield* TestClock.adjust("499 millis")
+      assert.lengthOf(yield* redemptionUpdates(world), 1)
+      yield* TestClock.adjust("1 millis")
+      assert.lengthOf(yield* redemptionUpdates(world), 2)
+      yield* TestClock.adjust("500 millis")
+      assert.lengthOf(yield* redemptionUpdates(world), 3)
+      yield* TestClock.adjust("500 millis")
+      yield* world.settled
+      const attempts = yield* redemptionUpdates(world)
+      assert.lengthOf(attempts, 4)
+      assert.deepStrictEqual(
+        new Set(attempts.map((request) => JSON.stringify(request.json))),
+        new Set(['{"status":"FULFILLED"}']),
+      )
+      // Never cancelled: the viewer got their song. Nothing said in chat either.
+      assert.deepStrictEqual(yield* chatReplies(world), [])
+      // The Redemption is done with: the next start does not try again.
+      yield* world.rebuildChannel
+      yield* world.settled
+      assert.lengthOf(yield* redemptionUpdates(world), 4)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("fulfils and replies once a retry succeeds", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.providers.twitchHelix.set(
+        helixScenario({ manageableRewards: [manageableSongRequest], redemptionUpdateRefusals: 1 }),
+      )
+      yield* world.channel.receive(
+        notification("message-1", redemptionAdded("reward-1", `spotify:track:${neverGonnaId}`)),
+      )
+      yield* TestClock.adjust("500 millis")
+      yield* world.settled
+      assert.lengthOf(yield* redemptionUpdates(world), 2)
+      const [reply] = yield* chatReplies(world)
+      assert.deepStrictEqual(reply?.json, {
+        broadcaster_id: "twitch-user-1",
+        sender_id: "twitch-user-1",
+        message: "@viewer added Never Gonna Give You Up by Rick Astley to the queue.",
+      })
+    }).pipe(Effect.scoped),
+  )
+})

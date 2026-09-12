@@ -15,6 +15,8 @@ import {
   storedSubscriptions,
   twitchConnection,
 } from "../../api/test/fixtures.ts"
+import type { ReceivedRequest } from "../../api/test/FakeApi.ts"
+import type { SpotifyWebScenario, TwitchHelixScenario } from "../../api/test/FakeProviders.ts"
 import { type ReceiverWorld, makeReceiverWorld } from "./ReceiverHarness.ts"
 import { createHmac } from "node:crypto"
 
@@ -181,13 +183,19 @@ const revocationBody = (subscriptionId: string, reason: string) =>
 
 const rewardsUrl = "https://api.twitch.tv/helix/channel_points/custom_rewards"
 
+/** Helix as the tests start it: accepting the stored Connection's token and knowing the Reward. */
+const helixScenario: TwitchHelixScenario = {
+  accessToken: Option.some("access-token-1"),
+  manageableRewards: [manageableSongRequest],
+}
+
 /** The world at noon with Twitch authorized, its Reward stored in the given pause state, and Helix knowing it. */
 const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
   const world = yield* makeReceiverWorld
   yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-09-11T12:00:00Z")))
   yield* world.stores.twitch.writeConnection(twitchConnection)
   yield* world.providers.twitchHelix.set({
-    accessToken: Option.some("access-token-1"),
+    ...helixScenario,
     manageableRewards: [{ ...manageableSongRequest, is_paused: isPaused }],
   })
   yield* world.channelStore.writeReward({ ...songRequestReward, isPaused })
@@ -195,21 +203,58 @@ const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
   return world
 })
 
-/** The world Live, with Spotify authorized too and knowing one track, so a Song Request can run to its end. */
-const worldLiveWithSpotify = Effect.fnUntraced(function* () {
+/** The world Live with Spotify authorized too, and the Spotify Web API answering as the scenario says. */
+const worldLiveWithSpotify = Effect.fnUntraced(function* (
+  spotify: SpotifyWebScenario = spotifyWithTracks(),
+) {
   const world = yield* worldWithReward(false)
   yield* world.channelStore.writeState("Live")
   yield* world.stores.spotify.writeConnection(authorizedConnection)
-  yield* world.providers.spotifyWeb.set(spotifyWithTracks())
+  yield* world.providers.spotifyWeb.set(spotify)
   return world
 })
 
-/** The pause updates Helix received, as `PATCH` lines with their bodies. */
+const redemptionsUrl = `${rewardsUrl}/redemptions?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`
+
+const chatUrl = "https://api.twitch.tv/helix/chat/messages"
+
+const line = (request: ReceivedRequest) => `${request.method} ${request.url}`
+
+/** Sends a Song Request with the input as Twitch would, and returns every request the fakes saw once the Channel is done with it. */
+const songRequest = Effect.fnUntraced(function* (world: ReceiverWorld, input: string) {
+  const request = yield* signedRequest({
+    type: "notification",
+    body: redemptionBody("reward-1", input),
+  })
+  yield* assertAccepted(yield* world.receive(request))
+  yield* world.settled
+  return yield* world.providers.received
+})
+
+/** The chat message as Twitch received it: sent as the Twitch Connected Account to its own chat. */
+const chatMessage = (message: string) => ({
+  broadcaster_id: "twitch-user-1",
+  sender_id: "twitch-user-1",
+  message,
+})
+
+const spotifyRequests = (requests: ReadonlyArray<ReceivedRequest>) =>
+  requests.filter((request) => request.hostname === "api.spotify.com")
+
+/** Asserts Twitch was asked exactly to cancel the Redemption and then to tell the viewer why. */
+const assertCancelled = (requests: ReadonlyArray<ReceivedRequest>, reply: string) => {
+  const twitch = requests.filter((request) => request.hostname === "api.twitch.tv")
+  assert.deepStrictEqual(twitch.map(line), [`PATCH ${redemptionsUrl}`, `POST ${chatUrl}`])
+  assert.deepStrictEqual(twitch[0]?.json, { status: "CANCELED" })
+  assert.deepStrictEqual(twitch[1]?.json, chatMessage(`@Viewer ${reply}`))
+}
+
+/** The pause updates Helix received, as `PATCH` lines with their bodies; a Redemption update is not one. */
 const pauseUpdates = (world: ReceiverWorld) =>
   Effect.map(world.providers.twitchHelix.received, (requests) =>
     requests
-      .filter((request) => request.url.startsWith(rewardsUrl))
-      .map((request) => [`${request.method} ${request.url}`, request.json]),
+      .filter((request) => request.url.startsWith(`${rewardsUrl}?`))
+      .map((request) => [line(request), request.json]),
   )
 
 const assertAccepted = Effect.fnUntraced(function* (response: Response) {
@@ -526,5 +571,140 @@ describe("the receiver and the Channel", () => {
           message: "@Viewer added Never Gonna Give You Up by Rick Astley to the queue.",
         })
       }).pipe(Effect.scoped),
+  )
+})
+
+describe("a Song Request that fails", () => {
+  it.effect("while Offline is cancelled and the viewer told, without a Spotify call", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.channelStore.writeState("Offline")
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(spotifyRequests(requests), [])
+      assertCancelled(
+        requests,
+        "song requests are off while the stream is offline, points refunded.",
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("with an input that is not a track link is cancelled without a Spotify call", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      const requests = yield* songRequest(world, "https://open.spotify.com/album/abc")
+      assert.deepStrictEqual(spotifyRequests(requests), [])
+      assertCancelled(requests, "that isn't a Spotify track link, points refunded.")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("while the Spotify Connection is Not Configured is cancelled as unavailable", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channelStore.writeState("Live")
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(
+        requests.filter((request) => request.hostname !== "api.twitch.tv"),
+        [],
+      )
+      assertCancelled(requests, "couldn't add that track, points refunded.")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "while the Spotify Connection is Reauthorization Required is cancelled as unavailable",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldLiveWithSpotify()
+        yield* world.stores.spotify.writeConnection({
+          ...authorizedConnection,
+          status: "Reauthorization Required",
+        })
+        const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+        assert.deepStrictEqual(
+          requests.filter((request) => request.hostname !== "api.twitch.tv"),
+          [],
+        )
+        assertCancelled(requests, "couldn't add that track, points refunded.")
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("whose track lookup fails after the queue add is fulfilled, naming the link", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify(spotifyWithTracks({}))
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(requests.map(line), [
+        `POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${neverGonnaId}`,
+        `GET https://api.spotify.com/v1/tracks/${neverGonnaId}`,
+        `PATCH ${redemptionsUrl}`,
+        `POST ${chatUrl}`,
+      ])
+      assert.deepStrictEqual(requests[2]?.json, { status: "FULFILLED" })
+      assert.deepStrictEqual(
+        requests[3]?.json,
+        chatMessage(`@Viewer added https://open.spotify.com/track/${neverGonnaId} to the queue.`),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("while Spotify reports no active device is cancelled as nothing playing", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify({
+        ...spotifyWithTracks(),
+        queueRefusal: {
+          status: 404,
+          message: "Player command failed: No active device found",
+          reason: "NO_ACTIVE_DEVICE",
+        },
+      })
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(spotifyRequests(requests).map(line), [
+        `POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${neverGonnaId}`,
+      ])
+      assertCancelled(requests, "Spotify isn't playing right now, points refunded.")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("that Spotify refuses for any other reason is cancelled as failed", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify({
+        ...spotifyWithTracks(),
+        queueRefusal: { status: 503, message: "Service unavailable" },
+      })
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(spotifyRequests(requests).map(line), [
+        `POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${neverGonnaId}`,
+      ])
+      assertCancelled(requests, "couldn't add that track, points refunded.")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("whose refund reply Twitch refuses is still cancelled", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.channelStore.writeState("Offline")
+      yield* world.providers.twitchHelix.set({
+        ...helixScenario,
+        chatSend: { _tag: "Refused", status: 500 },
+      })
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(requests.map(line), [`PATCH ${redemptionsUrl}`, `POST ${chatUrl}`])
+      assert.deepStrictEqual(requests[0]?.json, { status: "CANCELED" })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("whose reply Twitch does not show is still fulfilled", () =>
+    Effect.gen(function* () {
+      const world = yield* worldLiveWithSpotify()
+      yield* world.providers.twitchHelix.set({
+        ...helixScenario,
+        chatSend: { _tag: "Dropped", code: "msg_rejected", message: "Your message was rejected." },
+      })
+      const requests = yield* songRequest(world, `spotify:track:${neverGonnaId}`)
+      assert.deepStrictEqual(requests.slice(2).map(line), [
+        `PATCH ${redemptionsUrl}`,
+        `POST ${chatUrl}`,
+      ])
+      assert.deepStrictEqual(requests[2]?.json, { status: "FULFILLED" })
+    }).pipe(Effect.scoped),
   )
 })

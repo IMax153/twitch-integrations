@@ -4,16 +4,20 @@
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each cancellation reason produces one Update Redemption Status call with CANCELED and one chat reply with the spec's wording, addressed to the viewer by display name
-- [ ] A Redemption processed while Offline is cancelled with the Offline reply without any Spotify call
-- [ ] A Spotify no-active-device response cancels with NothingPlaying; a Spotify Connection error cancels with SpotifyUnavailable; any other Spotify failure cancels with Failed
-- [ ] A track lookup failure after a successful queue add still fulfils, with the link text in the reply
-- [ ] A chat send failure or an is_sent false response is logged and the Redemption's outcome is unchanged
-- [ ] A fulfil that fails is retried three times under the TestClock, and after the last failure the Redemption is left unfulfilled with a log line, never cancelled
-- [ ] Tests cover every outcome through the receiver over the fake APIs
+- [x] Each cancellation reason produces one Update Redemption Status call with CANCELED and one chat reply with the spec's wording, addressed to the viewer by display name
+- [x] A Redemption processed while Offline is cancelled with the Offline reply without any Spotify call
+- [x] A Spotify no-active-device response cancels with NothingPlaying; a Spotify Connection error cancels with SpotifyUnavailable; any other Spotify failure cancels with Failed
+- [x] A track lookup failure after a successful queue add still fulfils, with the link text in the reply
+- [x] A chat send failure or an is_sent false response is logged and the Redemption's outcome is unchanged
+- [x] A fulfil that fails is retried three times under the TestClock, and after the last failure the Redemption is left unfulfilled with a log line, never cancelled
+- [x] Tests cover every outcome through the receiver over the fake APIs
 
 ## Comments
 
 Note from ticket 06 (2026-09-12): `SongRequests.process` already decides every cancellation reason (`NotQueued` carries it) and only logs it; this ticket turns that into the cancel call and the reply, with `replyTo` in the domain package already holding the wording. Each Redemption is processed under the `ChannelLock` that `receive` also takes, so the fulfil retries' waits delay the acknowledgement of any notification arriving meanwhile; keep the three waits short enough that their sum stays well inside Twitch's response deadline, or narrow the lock to the Processing Queue reads and the state read.
+
+Implemented on 2026-09-12. `SongRequests.process` now ends every Redemption: a `NotQueued` reason cancels the Redemption through Update Redemption Status with `CANCELED` and replies with the reason's wording; a queued track is fulfilled and its reply names the track, or its page link when the lookup failed. The chat reply is one place, `reply`, which logs a refused send or an `is_sent` false response with its drop reason and never fails, so chat trouble cannot change the outcome. The fulfil call is retried three times, half a second apart, each failure logged; after the last a warning says the Redemption was left unfulfilled, and it is never cancelled. The lock was kept as the spec asks: the three waits sum to 1.5 seconds, well inside Twitch's response deadline for a notification that arrives meanwhile. The domain's `replyTo` became `cancelledReply` and `fulfilledReply`, since a cancellation has no track to name. Fakes: the Spotify Web API takes a `queueRefusal` with Spotify's status, message, and reason code; Helix takes `chatSend` (Refused with a status, or Dropped with a code and message) and `redemptionUpdateRefusals`, the number of Redemption updates to either status it answers 500 before accepting, which needed `FakeApi` endpoints to see the requests answered before the current one. Tests: every cancellation reason, both Spotify Connection states, the link fallback, and both kinds of chat trouble run through the receiver in `EventSubRoutes.test.ts`; the retry waits and the recovery after one failure run under the TestClock in `ChannelObject.test.ts`. A cancel that cannot get a Twitch token or that Twitch refuses is logged and the Redemption dropped from the Processing Queue; ticket 08 turns the token case into the hold.
+
+Reviewed on 2026-09-12 against the branch tip on both axes. Applied: the cancellation replies end with a full stop, as the parent spec writes them and the fulfilled reply already did; `cancel` and `fulfil` share one `end` step for the status update; the retry is `Schedule.recurs(3)` paced by `Schedule.spaced`; the give-up is its own warning line; the fake's refusal counter is named for what it counts. Kept: the domain's `RedemptionOutcome` schema, which the parent spec names and no code reads yet; no test asserts a log line, as none in the repo does. Flagged for ticket 08: a cancel that Twitch refuses for a reason other than the token, such as a 500, is logged once and the Redemption dropped unrefunded, since the spec retries only the fulfil.

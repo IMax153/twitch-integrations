@@ -12,3 +12,7 @@
 - [ ] A held Redemption that Twitch reports as no longer unfulfilled is dropped with a log line rather than retried
 - [ ] After settlement no held Redemptions remain, and a repeated reconcile makes no cancellation calls
 - [ ] Tests cover the hold, the settlement on reconcile, and the empty-after-settlement case over the fake Helix API under the TestClock
+
+## Comments
+
+Note from ticket 07 (2026-09-12): `SongRequests.cancel` takes `TwitchAccess.current` and fails with the Connection's own error when Twitch cannot hand out a token; `process` currently logs that and returns, so the Redemption leaves the Processing Queue. The hold belongs where that failure is caught, keyed on the `_tag` of `ConnectionNotConfigured` or `ReauthorizationRequired`, which arrive over the RPC as plain objects. The fake Helix's `redemptionUpdateRefusals` counts refusals of any Redemption update, so a cancel that Twitch refuses can be scripted the same way.
