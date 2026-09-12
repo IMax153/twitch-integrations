@@ -135,6 +135,12 @@ importers:
 
   apps/eventsub:
     dependencies:
+      '@twitch-integrations/api':
+        specifier: workspace:^
+        version: link:../api
+      '@twitch-integrations/domain':
+        specifier: workspace:^
+        version: link:../../packages/domain
       '@twitch-integrations/infra':
         specifier: workspace:^
         version: link:../infra

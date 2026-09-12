@@ -1,9 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConnectionNotConfigured } from "@twitch-integrations/domain/ConnectionErrors"
+import {
+  Notification,
+  type NotificationEncoded,
+  type NotificationEvent,
+} from "@twitch-integrations/domain/Notification"
 import { songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
 import {
   type BroadcasterWorld,
@@ -14,7 +20,12 @@ import {
 } from "./BroadcasterHarness.ts"
 import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
-import { songRequestReward, twitchConnection } from "./fixtures.ts"
+import {
+  manageableSongRequest,
+  songRequestReward,
+  storedSubscriptions,
+  twitchConnection,
+} from "./fixtures.ts"
 
 const at = (iso: string) => DateTime.makeUnsafe(iso).pipe(DateTime.toEpochMillis, TestClock.setTime)
 
@@ -48,15 +59,6 @@ const rewardsUrl = "https://api.twitch.tv/helix/channel_points/custom_rewards"
 const subscriptionsUrl = "https://api.twitch.tv/helix/eventsub/subscriptions"
 
 const streamsUrl = "https://api.twitch.tv/helix/streams"
-
-/** The Song Request Reward as Helix holds it, already manageable by this client ID. */
-const manageableSongRequest = {
-  id: "reward-1",
-  title: "Song Request",
-  cost: 1,
-  prompt: songRequestSettings.prompt,
-  is_paused: false,
-}
 
 /** The settings as Helix receives them: the three the spec varies, and the fixed ones. */
 const settingsBody = {
@@ -387,6 +389,161 @@ describe("ChannelObject construction", () => {
       // No Twitch Connection, so the start-up reconcile failed; the object still answers.
       const failure = yield* Effect.flip(channel.reconcile())
       assert.deepStrictEqual(failure, ConnectionNotConfigured.make({ provider: "twitch" }))
+    }).pipe(Effect.scoped),
+  )
+})
+
+/** A Notification as the receiver hands it over the RPC: encoded, under the message ID the test picks. */
+const notification = (
+  messageId: string,
+  event: NotificationEvent,
+  subscriptionId = "sub-online",
+): NotificationEncoded => Schema.encodeSync(Notification)({ messageId, subscriptionId, event })
+
+const online: NotificationEvent = { _tag: "StreamOnline" }
+
+const offline: NotificationEvent = { _tag: "StreamOffline" }
+
+/** A Redemption of the reward with the ID, which may or may not be the Reward's. */
+const redemptionAdded = (rewardId: string): NotificationEvent => ({
+  _tag: "RedemptionAdded",
+  redemption: {
+    id: "redemption-1",
+    rewardId,
+    viewerId: "viewer-1",
+    viewerName: "viewer",
+    input: "spotify:track:abc",
+    redeemedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
+  },
+})
+
+/** The world with the Reward stored in the given pause state and known to Helix, so a pause update can answer. */
+const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
+  const world = yield* worldWithTwitch({ manageableRewards: [manageableSongRequest] })
+  yield* world.channelStore.writeReward({ ...songRequestReward, isPaused })
+  return world
+})
+
+describe("ChannelObject.receive", () => {
+  it.effect("a stream online notification makes the Channel Live and unpauses the Reward", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(true)
+      yield* world.channelStore.writeState("Offline")
+      yield* world.channel.receive(notification("message-1", online))
+      const requests = yield* rewardRequests(world)
+      assert.deepStrictEqual(lines(requests), [
+        `PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`,
+      ])
+      assert.deepStrictEqual(requests[0]?.json, { is_paused: false })
+      assert.strictEqual(yield* world.channelStore.readState, "Live")
+      assert.deepStrictEqual(
+        yield* world.channelStore.readReward,
+        Option.some({ ...songRequestReward, isPaused: false }),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a stream offline notification makes the Channel Offline and pauses the Reward", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channelStore.writeState("Live")
+      yield* world.channel.receive(notification("message-1", offline, "sub-offline"))
+      const requests = yield* rewardRequests(world)
+      assert.deepStrictEqual(
+        requests.map((request) => request.json),
+        [{ is_paused: true }],
+      )
+      assert.strictEqual(yield* world.channelStore.readState, "Offline")
+      assert.deepStrictEqual(
+        yield* world.channelStore.readReward,
+        Option.some({ ...songRequestReward, isPaused: true }),
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a revocation records its reason on the stored Event Subscription", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channelStore.replaceEventSubscriptions(storedSubscriptions)
+      yield* world.channel.receive(
+        notification("message-1", { _tag: "Revocation", reason: "authorization_revoked" }),
+      )
+      const [redemption, revoked, offlineSubscription] =
+        yield* world.channelStore.readEventSubscriptions
+      assert.deepStrictEqual(revoked, {
+        ...storedSubscriptions[1],
+        status: "authorization_revoked",
+        revocationReason: Option.some("authorization_revoked"),
+      })
+      assert.deepStrictEqual(redemption, storedSubscriptions[0])
+      assert.deepStrictEqual(offlineSubscription, storedSubscriptions[2])
+      assert.deepStrictEqual(yield* world.providers.received, [])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("acknowledges a repeated message ID without a second pause call", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channel.receive(notification("message-1", offline))
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("keeps a message ID for 24 hours and then forgets it", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      // A Connection that outlives the test, so no refresh gets in the way.
+      yield* world.stores.twitch.writeConnection({
+        ...twitchConnection,
+        expiresAt: DateTime.makeUnsafe("2026-09-20T12:00:00Z"),
+        nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-20T11:55:00Z")),
+      })
+      yield* world.channel.receive(notification("message-1", offline))
+      yield* TestClock.adjust("23 hours")
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 1)
+      yield* TestClock.adjust("2 hours")
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 2)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("writes nothing for a Redemption of a reward that is not the Reward", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channel.receive(notification("message-1", redemptionAdded("reward-other")))
+      assert.deepStrictEqual(yield* world.providers.received, [])
+      assert.deepStrictEqual(yield* world.channelStore.readReward, Option.some(songRequestReward))
+      // Not even the message ID was kept: the same ID still carries a later notification.
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("writes nothing for a revocation of an Event Subscription it does not hold", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channelStore.replaceEventSubscriptions(storedSubscriptions)
+      yield* world.channel.receive(
+        notification("message-1", { _tag: "Revocation", reason: "user_removed" }, "sub-unknown"),
+      )
+      assert.deepStrictEqual(yield* world.channelStore.readEventSubscriptions, storedSubscriptions)
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("still records the state when the pause update fails", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      // Helix knows no reward, so the pause update answers 404.
+      yield* world.providers.twitchHelix.set(helixScenario())
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.strictEqual(yield* world.channelStore.readState, "Offline")
+      // The failure is logged and the notification acknowledged, not retried: reconcile repairs the pause state.
+      yield* world.channel.receive(notification("message-1", offline))
+      assert.lengthOf(yield* rewardRequests(world), 1)
     }).pipe(Effect.scoped),
   )
 })

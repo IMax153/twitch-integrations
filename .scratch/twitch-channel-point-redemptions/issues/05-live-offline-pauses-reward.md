@@ -4,12 +4,16 @@
 
 **Blocked by:** 03, 04
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The receiver's only binding is the Channel object namespace, and a verified notification of one of the three subscription types reaches the Channel's receive method
-- [ ] A stream online notification makes the Channel Live and unpauses the Reward; a stream offline notification makes it Offline and pauses the Reward
-- [ ] A revocation records its reason on the stored Event Subscription and returns 2xx
-- [ ] A repeated message ID is acknowledged and causes no second pause or unpause call
-- [ ] Message IDs older than 24 hours are pruned, verified under the TestClock
-- [ ] A notification of an unknown subscription type or unknown reward ID returns 2xx and writes nothing
-- [ ] Tests drive the receiver's fetch handler with signed notifications and assert on what the fake Helix API received
+- [x] The receiver's only binding is the Channel object namespace, and a verified notification of one of the three subscription types reaches the Channel's receive method
+- [x] A stream online notification makes the Channel Live and unpauses the Reward; a stream offline notification makes it Offline and pauses the Reward
+- [x] A revocation records its reason on the stored Event Subscription and returns 2xx
+- [x] A repeated message ID is acknowledged and causes no second pause or unpause call
+- [x] Message IDs older than 24 hours are pruned, verified under the TestClock
+- [x] A notification of an unknown subscription type or unknown reward ID returns 2xx and writes nothing
+- [x] Tests drive the receiver's fetch handler with signed notifications and assert on what the fake Helix API received
+
+## Comments
+
+Implemented on 2026-09-12. `packages/domain` gains `Notification`, the verified message the receiver hands the Channel (message ID, Event Subscription ID, and one of `StreamOnline`, `StreamOffline`, `RedemptionAdded`, or `Revocation` with Twitch's status as the reason), and `Redemption` with the fields the spec lists; `CONTEXT.md` defines Notification. In `apps/eventsub`, `Notifications.ts` reads a notification or revocation body into a `Notification` once the subscription type is one of the three, and `EventSubRoutes.ts` hands it to the Channel and answers 204 when `receive` returns; a notification of any other type, or one whose body is not its type's event, is logged and acknowledged without reaching the Channel. The receiver reaches the Channel object across scripts: `ChannelObject` is now Alchemy's modular form (the class is the identity, `ChannelObject.layer` the implementation), the API Worker is the Layer form declaring the object in its contract with `ApiWorker.layer` as its default export, and the receiver's `Worker.ts` binds `ChannelObject.from(ApiWorker)` behind the existing `Channel` service, so its bindings are the webhook secret and that namespace alone; `alchemy.run.ts` provides the API Worker's layer around all three Workers. In `apps/api`, `ChannelReceive.ts` runs under the new `ChannelLock` shared with reconcile: it forgets message IDs received more than 24 hours ago, returns at once for a message ID it still holds, sets Live or Offline and pauses or unpauses the Reward through `RewardPause` (shared with reconcile, as `TwitchAccess` now is), records a revocation's reason and status on the held Event Subscription, keeps a Redemption of the Reward's message ID for ticket 06 to act on, and stores nothing, not even the message ID, for a revocation of an Event Subscription it does not hold or a Redemption of another reward. The state is written before the pause update, whose failure is logged and acknowledged rather than failed back to Twitch, since a resend would not help and the next reconcile sets the pause state again. `ChannelStore` gains the `seen_message` table and an update of one Event Subscription. Tests: `ChannelObject.test.ts` covers both stream events, revocation, the repeat, the 24-hour window under the TestClock, the two discards, and a failed pause update; `EventSubRoutes.test.ts` drives the receiver's handler with signed bodies over the in-process Channel and fake Helix (`ReceiverHarness.ts`) for the stream events, revocation, the resend, the unknown type, the Redemption of another reward, and a malformed body. Verified under `alchemy dev`: `twitch event trigger stream.online` and `stream.offline` are acknowledged with 204 and the API Worker logs the Channel going Live then Offline over the cross-script binding, and `channel.update` is logged as ignored by the receiver. `alchemy plan --stage production` shows the receiver's `ChannelObject` binding and the API Worker's own as the only binding changes.

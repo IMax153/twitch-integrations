@@ -1,6 +1,8 @@
+import { Notification } from "@twitch-integrations/domain/Notification"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
 import { ChannelObject, type ChannelObjectShape } from "./ChannelObject.ts"
 import type { ReconcileError } from "./ChannelReconcile.ts"
 
@@ -11,10 +13,14 @@ export interface ChannelService {
    * match on `_tag` rather than `instanceof`.
    */
   readonly reconcile: Effect.Effect<void, ReconcileError>
+  /** Hands the Channel a verified notification and returns once the Channel has recorded what it will of it. */
+  readonly receive: (notification: Notification) => Effect.Effect<void>
 }
 
 /** The fixed name the one Channel object is addressed by. */
-const channelName = "channel"
+export const channelName = "channel"
+
+const encodeNotification = Schema.encodeSync(Notification)
 
 /**
  * The service over any way of reaching the Channel object: the namespace
@@ -24,6 +30,8 @@ const channelName = "channel"
  */
 const fromObject = (object: () => ChannelObjectShape): ChannelService => ({
   reconcile: Effect.suspend(() => object().reconcile()),
+  // Encoded here, before the RPC, so what crosses it is plain JSON.
+  receive: (notification) => object().receive(encodeNotification(notification)),
 })
 
 const make = Effect.map(ChannelObject, (objects) =>
@@ -31,9 +39,9 @@ const make = Effect.map(ChannelObject, (objects) =>
 )
 
 /**
- * The Worker's view of the Channel object. In production it wraps the
- * Durable Object namespace RPC; tests provide the object in-process over the
- * same code.
+ * A Worker's view of the Channel object. In production the API Worker wraps
+ * the namespace it hosts and the receiver wraps the same namespace bound
+ * across scripts; tests provide the object in-process over the same code.
  */
 export class Channel extends Context.Service<Channel, ChannelService>()(
   "@twitch-integrations/api/Channel",

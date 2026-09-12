@@ -2,6 +2,7 @@ import { ChannelState } from "@twitch-integrations/domain/ChannelState"
 import { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { Reward } from "@twitch-integrations/domain/Reward"
 import * as Context from "effect/Context"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -22,6 +23,14 @@ export interface ChannelStoreService {
   readonly replaceEventSubscriptions: (
     subscriptions: ReadonlyArray<EventSubscription>,
   ) => Effect.Effect<void>
+  /** Replaces the stored Event Subscription with the same ID; one not stored is left unstored. */
+  readonly updateEventSubscription: (subscription: EventSubscription) => Effect.Effect<void>
+  /** Whether a Notification with this message ID has been processed and not yet forgotten. */
+  readonly hasSeenNotification: (messageId: string) => Effect.Effect<boolean>
+  /** Remembers a processed Notification's message ID from the time it was received. */
+  readonly recordNotification: (messageId: string, receivedAt: DateTime.Utc) => Effect.Effect<void>
+  /** Forgets every Notification received before the cutoff. */
+  readonly forgetNotificationsBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
 }
 
 /**
@@ -50,6 +59,10 @@ interface StateRow {
   readonly state: string
 }
 
+interface CountRow {
+  readonly count: number
+}
+
 const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
   yield* sql`
       CREATE TABLE IF NOT EXISTS reward (
@@ -68,6 +81,12 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
         position INTEGER PRIMARY KEY AUTOINCREMENT,
         subscription_id TEXT NOT NULL UNIQUE,
         document TEXT NOT NULL
+      )
+    `
+  yield* sql`
+      CREATE TABLE IF NOT EXISTS seen_message (
+        message_id TEXT PRIMARY KEY,
+        received_at INTEGER NOT NULL
       )
     `
 })
@@ -125,13 +144,42 @@ const make = Effect.gen(function* () {
       sql.withTransaction,
       Effect.orDie,
     ),
+
+    updateEventSubscription: Effect.fn("ChannelStore.updateEventSubscription")(function* (
+      subscription: EventSubscription,
+    ) {
+      const document = yield* encodeEventSubscription(subscription)
+      yield* sql`
+        UPDATE event_subscription SET document = ${document}
+        WHERE subscription_id = ${subscription.id}
+      `
+    }, Effect.orDie),
+
+    hasSeenNotification: (messageId) =>
+      sql<CountRow>`SELECT COUNT(*) AS count FROM seen_message WHERE message_id = ${messageId}`.pipe(
+        Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
+        Effect.orDie,
+      ),
+
+    recordNotification: (messageId, receivedAt) =>
+      sql`
+        INSERT INTO seen_message (message_id, received_at)
+        VALUES (${messageId}, ${DateTime.toEpochMillis(receivedAt)})
+        ON CONFLICT (message_id) DO NOTHING
+      `.pipe(Effect.asVoid, Effect.orDie),
+
+    forgetNotificationsBefore: (cutoff) =>
+      sql`DELETE FROM seen_message WHERE received_at < ${DateTime.toEpochMillis(cutoff)}`.pipe(
+        Effect.asVoid,
+        Effect.orDie,
+      ),
   }
   return store
 })
 
 /**
- * Persistence for the Channel: its Reward, its state, and its Event
- * Subscriptions, written against the generic `SqlClient` so the same code
+ * Persistence for the Channel: its Reward, its state, its Event
+ * Subscriptions, and the message IDs it has processed lately, written against the generic `SqlClient` so the same code
  * runs over Durable Object storage in production and over an in-memory
  * database in tests. As in the Connection store, storage failures and
  * malformed rows are defects.

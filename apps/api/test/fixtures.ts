@@ -62,6 +62,15 @@ export const grantedScenario: ProviderScenario = {
   account: { id: "account-1", displayName: "Max" },
 }
 
+/** The Song Request Reward as the fake Helix holds it, already manageable by this client ID. */
+export const manageableSongRequest = {
+  id: "reward-1",
+  title: songRequestSettings.title,
+  cost: songRequestSettings.cost,
+  prompt: songRequestSettings.prompt,
+  is_paused: false,
+}
+
 /** The Song Request Reward as the deployment stores it once created, unpaused. */
 export const songRequestReward: Reward = {
   id: "reward-1",

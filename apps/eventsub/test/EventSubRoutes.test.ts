@@ -1,35 +1,30 @@
 import { assert, describe, it } from "@effect/vitest"
+import { songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as Redacted from "effect/Redacted"
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import { EventSubHttp } from "../src/EventSubRoutes.ts"
-import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
+import * as Option from "effect/Option"
+import * as TestClock from "effect/testing/TestClock"
+import { testTransport } from "../../api/test/BroadcasterHarness.ts"
+import {
+  manageableSongRequest,
+  songRequestReward,
+  storedSubscriptions,
+  twitchConnection,
+} from "../../api/test/fixtures.ts"
+import { type ReceiverWorld, makeReceiverWorld } from "./ReceiverHarness.ts"
 import { createHmac } from "node:crypto"
 
 /** The secret the receiver is configured with; the tests sign with the same value. */
-const secret = "test-webhook-secret-0123"
+const { secret } = testTransport
 
 const origin = "https://stream.example"
 
-/** The Worker's handler over the configured secret, answering one Web request. */
-const send = Effect.fnUntraced(
-  function* (request: Request) {
-    const handler = yield* EventSubHttp
-    const response = yield* handler.pipe(
-      Effect.provideService(
-        HttpServerRequest.HttpServerRequest,
-        HttpServerRequest.fromWeb(request),
-      ),
-      Effect.scoped,
-    )
-    return HttpServerResponse.toWeb(response)
-  },
-  Effect.provide(Layer.succeed(WebhookSecret, Redacted.make(secret))),
-)
+/** The receiver over a fresh world, answering one Web request; for the rules that never reach the Channel. */
+const send = Effect.fnUntraced(function* (request: Request) {
+  const world = yield* makeReceiverWorld
+  return yield* world.receive(request)
+}, Effect.scoped)
 
 /** The webhook path Twitch delivers to. */
 const webhookPath = "/eventsub/twitch"
@@ -114,6 +109,100 @@ const signedRequest = Effect.fnUntraced(function* (message: OutgoingMessage) {
     }
   }
   return new Request(`${origin}${webhookPath}`, { method: "POST", headers, body: message.body })
+})
+
+/** A stream notification's body as Twitch sends it, from the subscription with the ID and type. */
+const streamBody = (subscriptionId: string, type: "stream.online" | "stream.offline") =>
+  JSON.stringify({
+    subscription: {
+      id: subscriptionId,
+      type,
+      version: "1",
+      status: "enabled",
+      cost: 0,
+      condition: { broadcaster_user_id: "twitch-user-1" },
+      transport: { method: "webhook", callback: testTransport.callback },
+      created_at: "2026-09-11T11:00:00Z",
+    },
+    event: {
+      id: "9001",
+      broadcaster_user_id: "twitch-user-1",
+      broadcaster_user_login: "max",
+      broadcaster_user_name: "max",
+      ...(type === "stream.online" ? { type: "live", started_at: "2026-09-11T12:00:00Z" } : {}),
+    },
+  })
+
+/** A redemption add notification's body, for the reward with the ID. */
+const redemptionBody = (rewardId: string) =>
+  JSON.stringify({
+    subscription: {
+      id: "sub-redemption",
+      type: "channel.channel_points_custom_reward_redemption.add",
+      version: "1",
+      status: "enabled",
+      cost: 0,
+      condition: { broadcaster_user_id: "twitch-user-1", reward_id: rewardId },
+      transport: { method: "webhook", callback: testTransport.callback },
+      created_at: "2026-09-11T11:00:00Z",
+    },
+    event: {
+      id: "redemption-1",
+      broadcaster_user_id: "twitch-user-1",
+      broadcaster_user_login: "max",
+      broadcaster_user_name: "max",
+      user_id: "viewer-1",
+      user_login: "viewer",
+      user_name: "Viewer",
+      user_input: "spotify:track:abc",
+      status: "unfulfilled",
+      reward: { id: rewardId, title: "Song Request", cost: 1, prompt: songRequestSettings.prompt },
+      redeemed_at: "2026-09-11T12:00:03.17106713Z",
+    },
+  })
+
+/** A revocation's body: the subscription with the reason as its status. */
+const revocationBody = (subscriptionId: string, reason: string) =>
+  JSON.stringify({
+    subscription: {
+      id: subscriptionId,
+      status: reason,
+      type: "stream.online",
+      version: "1",
+      cost: 0,
+      condition: { broadcaster_user_id: "twitch-user-1" },
+      transport: { method: "webhook", callback: testTransport.callback },
+      created_at: "2026-09-11T11:00:00Z",
+    },
+  })
+
+const rewardsUrl = "https://api.twitch.tv/helix/channel_points/custom_rewards"
+
+/** The world at noon with Twitch authorized, its Reward stored in the given pause state, and Helix knowing it. */
+const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
+  const world = yield* makeReceiverWorld
+  yield* TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe("2026-09-11T12:00:00Z")))
+  yield* world.stores.twitch.writeConnection(twitchConnection)
+  yield* world.providers.twitchHelix.set({
+    accessToken: Option.some("access-token-1"),
+    manageableRewards: [{ ...manageableSongRequest, is_paused: isPaused }],
+  })
+  yield* world.channelStore.writeReward({ ...songRequestReward, isPaused })
+  yield* world.channelStore.replaceEventSubscriptions(storedSubscriptions)
+  return world
+})
+
+/** The pause updates Helix received, as `PATCH` lines with their bodies. */
+const pauseUpdates = (world: ReceiverWorld) =>
+  Effect.map(world.providers.twitchHelix.received, (requests) =>
+    requests
+      .filter((request) => request.url.startsWith(rewardsUrl))
+      .map((request) => [`${request.method} ${request.url}`, request.json]),
+  )
+
+const assertAccepted = Effect.fnUntraced(function* (response: Response) {
+  assert.strictEqual(response.status, 204)
+  assert.strictEqual(yield* Effect.promise(() => response.text()), "")
 })
 
 const challengeBody = (challenge: string) =>
@@ -255,29 +344,140 @@ describe("the receiver", () => {
     }),
   )
 
-  const acknowledged: ReadonlyArray<[string, string]> = [
-    [
-      "notification",
-      JSON.stringify({
-        subscription: { id: "sub-1", type: "stream.online", version: "1" },
-        event: { broadcaster_user_id: "1234", type: "live" },
-      }),
-    ],
-    [
-      "revocation",
-      JSON.stringify({
-        subscription: { id: "sub-1", type: "stream.online", status: "authorization_revoked" },
-      }),
-    ],
-  ]
-
-  for (const [type, body] of acknowledged) {
-    it.effect(`acknowledges a correctly signed ${type} with a 2xx and no body`, () =>
+  it.effect(
+    "acknowledges a correctly signed notification of an unknown type without reaching the Channel",
+    () =>
       Effect.gen(function* () {
-        const response = yield* send(yield* signedRequest({ type, body }))
-        assert.isTrue(response.status >= 200 && response.status < 300, `status ${response.status}`)
-        assert.strictEqual(yield* Effect.promise(() => response.text()), "")
-      }),
-    )
-  }
+        const world = yield* worldWithReward(false)
+        const body = JSON.stringify({
+          subscription: { id: "sub-1", type: "channel.update", version: "2" },
+          event: { broadcaster_user_id: "twitch-user-1", title: "new title" },
+        })
+        yield* assertAccepted(
+          yield* world.receive(yield* signedRequest({ type: "notification", body })),
+        )
+        assert.deepStrictEqual(yield* world.providers.received, [])
+        assert.strictEqual(yield* world.channelStore.readState, "Offline")
+      }).pipe(Effect.scoped),
+  )
+})
+
+describe("the receiver and the Channel", () => {
+  it.effect("a stream online notification unpauses the Reward on Twitch", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(true)
+      const request = yield* signedRequest({
+        type: "notification",
+        body: streamBody("sub-online", "stream.online"),
+      })
+      yield* assertAccepted(yield* world.receive(request))
+      assert.deepStrictEqual(yield* pauseUpdates(world), [
+        [`PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`, { is_paused: false }],
+      ])
+      assert.strictEqual(yield* world.channelStore.readState, "Live")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a stream offline notification pauses the Reward on Twitch", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      yield* world.channelStore.writeState("Live")
+      const request = yield* signedRequest({
+        type: "notification",
+        body: streamBody("sub-offline", "stream.offline"),
+      })
+      yield* assertAccepted(yield* world.receive(request))
+      assert.deepStrictEqual(yield* pauseUpdates(world), [
+        [`PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`, { is_paused: true }],
+      ])
+      assert.strictEqual(yield* world.channelStore.readState, "Offline")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a revocation records its reason on the Event Subscription", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      const request = yield* signedRequest({
+        type: "revocation",
+        body: revocationBody("sub-online", "authorization_revoked"),
+      })
+      yield* assertAccepted(yield* world.receive(request))
+      const subscriptions = yield* world.channelStore.readEventSubscriptions
+      assert.deepStrictEqual(subscriptions[1], {
+        ...storedSubscriptions[1],
+        status: "authorization_revoked",
+        revocationReason: Option.some("authorization_revoked"),
+      })
+      assert.deepStrictEqual(yield* world.providers.received, [])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "a notification Twitch resends with the same message ID is acknowledged and not processed again",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldWithReward(false)
+        const body = streamBody("sub-offline", "stream.offline")
+        const first = yield* signedRequest({
+          type: "notification",
+          body,
+          headers: { id: "message-resent" },
+        })
+        yield* assertAccepted(yield* world.receive(first))
+        const again = yield* signedRequest({
+          type: "notification",
+          body,
+          headers: { id: "message-resent" },
+        })
+        yield* assertAccepted(yield* world.receive(again))
+        assert.lengthOf(yield* pauseUpdates(world), 1)
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "a Redemption of the Reward reaches the Channel and one of another reward is dropped",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldWithReward(false)
+        const other = yield* signedRequest({
+          type: "notification",
+          body: redemptionBody("reward-other"),
+          headers: { id: "message-shared" },
+        })
+        yield* assertAccepted(yield* world.receive(other))
+        // Nothing was kept of the dropped one, not even its message ID.
+        const ours = yield* signedRequest({
+          type: "notification",
+          body: redemptionBody("reward-1"),
+          headers: { id: "message-shared" },
+        })
+        yield* assertAccepted(yield* world.receive(ours))
+        // Once processed, the same ID is a resend, so an offline notification under it changes nothing.
+        const resend = yield* signedRequest({
+          type: "notification",
+          body: streamBody("sub-offline", "stream.offline"),
+          headers: { id: "message-shared" },
+        })
+        yield* assertAccepted(yield* world.receive(resend))
+        assert.deepStrictEqual(yield* pauseUpdates(world), [])
+        assert.strictEqual(yield* world.channelStore.readState, "Offline")
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("a notification whose body is not its type's event is acknowledged and dropped", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithReward(false)
+      const body = JSON.stringify({
+        subscription: {
+          id: "sub-redemption",
+          type: "channel.channel_points_custom_reward_redemption.add",
+        },
+        event: { id: "redemption-1" },
+      })
+      yield* assertAccepted(
+        yield* world.receive(yield* signedRequest({ type: "notification", body })),
+      )
+      assert.deepStrictEqual(yield* world.providers.received, [])
+    }).pipe(Effect.scoped),
+  )
 })
