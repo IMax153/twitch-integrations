@@ -4,6 +4,7 @@
   "compilerOptions": { "resolveJsonModule": true },
   "references": [
     { "path": "apps/api" },
+    { "path": "apps/eventsub" },
     { "path": "apps/infra" },
     { "path": "apps/web" },
     { "path": "packages/domain" }

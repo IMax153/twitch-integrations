@@ -11,6 +11,7 @@ import type {
   ReauthorizationRequired,
 } from "@twitch-integrations/domain/ConnectionErrors"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
+import { observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -24,7 +25,6 @@ import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AuthorizationFlow } from "./AuthorizationFlow.ts"
 import { ConnectionLifecycle } from "./ConnectionLifecycle.ts"
-import { observed } from "./Failure.ts"
 import {
   type AttemptClaim,
   type AttemptRejectionReason,
