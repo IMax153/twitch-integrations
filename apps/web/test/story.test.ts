@@ -2,16 +2,19 @@ import * as Option from "effect/Option"
 import { AsyncData } from "foldkit"
 import { Command, given, message, model, story } from "foldkit/story"
 import { describe, expect, test } from "vite-plus/test"
-import { FetchConnections, Message, init, update } from "../src/main.ts"
-import { loadingModel, notConfiguredConnections as connections } from "./fixtures.ts"
+import { FetchChannel, FetchConnections, Message, init, update } from "../src/main.ts"
+import { loadingModel, now, notConfiguredConnections as connections } from "./fixtures.ts"
 
 describe("init", () => {
   test("starts loading the Connections and keeps the result from Flags", () => {
-    const start = init({ maybeResult: Option.some("connected") })
+    const start = init({ maybeResult: Option.some("connected"), now, isVisible: true })
 
     expect(AsyncData.isLoading(start.model.connections)).toBe(true)
     expect(start.model.maybeResult).toEqual(Option.some("connected"))
-    expect(start.commands?.map((command) => command.name)).toEqual([FetchConnections.name])
+    expect(start.commands?.map((command) => command.name)).toEqual([
+      FetchConnections.name,
+      FetchChannel.name,
+    ])
   })
 })
 
@@ -20,7 +23,7 @@ describe("update", () => {
     story(
       update,
       given(loadingModel),
-      message(Message.SucceededFetchConnections({ connections })),
+      message(Message.SucceededFetchConnections({ connections, checkedAt: now })),
       Command.expectNone(),
       model((next) => {
         expect(next.connections).toEqual(AsyncData.succeed(connections))
@@ -48,7 +51,10 @@ describe("update", () => {
       model((next) => {
         expect(AsyncData.isLoading(next.connections)).toBe(true)
       }),
-      Command.resolve(FetchConnections, Message.SucceededFetchConnections({ connections })),
+      Command.resolve(
+        FetchConnections,
+        Message.SucceededFetchConnections({ connections, checkedAt: now }),
+      ),
       model((next) => {
         expect(next.connections).toEqual(AsyncData.succeed(connections))
       }),

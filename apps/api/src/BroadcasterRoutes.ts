@@ -1,5 +1,6 @@
 import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
+import { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -23,7 +24,7 @@ import type { AttemptClaim } from "./ConnectionStore.ts"
 const broadcasterPathPrefixes = ["/setup", "/oauth"]
 
 /** The Broadcaster Page, where every callback outcome sends the browser. */
-const broadcasterPagePath = broadcasterPathPrefixes[0]
+const broadcasterPagePath = "/"
 
 const pathOf = (url: string): string => url.split("?", 1)[0] ?? ""
 
@@ -39,7 +40,16 @@ const connectionSummaries = HttpServerResponse.schemaJson(
 const connectionsResponse = Effect.gen(function* () {
   const connections = yield* Connections
   const summaries = yield* Effect.forEach(ProviderName.literals, connections.describe)
-  return yield* connectionSummaries(summaries)
+  return yield* connectionSummaries(summaries, { headers: { "cache-control": "no-store" } })
+})
+
+const channelSummary = HttpServerResponse.schemaJson(Schema.toEncoded(ChannelMonitoring))
+
+const channelResponse = Effect.gen(function* () {
+  const channel = yield* Channel
+  return yield* channelSummary(yield* channel.describe, {
+    headers: { "cache-control": "no-store" },
+  })
 })
 
 const accessRequired = HttpServerResponse.text("Access required", { status: 403 })
@@ -180,6 +190,7 @@ const reconcileChannel = Effect.gen(function* () {
 // `Connections` and `Channel` the surrounding Worker or test harness supplies.
 const routes = Layer.mergeAll(
   HttpRouter.add("GET", "/setup/api/connections", connectionsResponse),
+  HttpRouter.add("GET", "/setup/api/channel", channelResponse),
   HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
   HttpRouter.add("GET", "/oauth/:provider/callback", callbackResponse),
 ).pipe(

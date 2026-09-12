@@ -14,7 +14,7 @@ const devHost = "127.0.0.1:5173"
 const toLocalWorker = { target: localWorker, headers: { host: devHost } }
 
 export default defineConfig({
-  base: "/setup/",
+  base: "/",
   plugins: [foldkit()],
   build: {
     outDir: "dist/client",

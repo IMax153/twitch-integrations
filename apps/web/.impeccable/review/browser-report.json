@@ -1,0 +1,173 @@
+{
+  "syntheticData": true,
+  "requests": 10,
+  "checks": [
+    "real Foldkit runtime",
+    "readiness",
+    "independent partial failure",
+    "retained queue and disclosure",
+    "focus retained",
+    "automatic refresh",
+    "responsive overflow",
+    "touch target dimensions"
+  ],
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1000,
+      "theme": "dark",
+      "overflow": false,
+      "overviewBottom": 635.5,
+      "controls": [
+        {
+          "text": "Refresh",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Spotify details",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Twitch details",
+          "height": 44
+        },
+        {
+          "text": "Processing Queue · 4",
+          "height": 44
+        },
+        {
+          "text": "Held Redemptions · 1",
+          "height": 44
+        }
+      ],
+      "hiddenLinks": 0
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024,
+      "theme": "light",
+      "overflow": false,
+      "overviewBottom": 794.875,
+      "controls": [
+        {
+          "text": "Refresh",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Spotify details",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Twitch details",
+          "height": 44
+        },
+        {
+          "text": "Processing Queue · 4",
+          "height": 44
+        },
+        {
+          "text": "Held Redemptions · 1",
+          "height": 44
+        }
+      ],
+      "hiddenLinks": 0
+    },
+    {
+      "name": "tablet-landscape",
+      "width": 1024,
+      "height": 768,
+      "theme": "dark",
+      "overflow": false,
+      "overviewBottom": 746.875,
+      "controls": [
+        {
+          "text": "Refresh",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Spotify details",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Twitch details",
+          "height": 44
+        },
+        {
+          "text": "Processing Queue · 4",
+          "height": 44
+        },
+        {
+          "text": "Held Redemptions · 1",
+          "height": 44
+        }
+      ],
+      "hiddenLinks": 0
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "theme": "light",
+      "overflow": false,
+      "overviewBottom": 1309.359375,
+      "controls": [
+        {
+          "text": "Refresh",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Spotify details",
+          "height": 44
+        },
+        {
+          "text": "Reconnect",
+          "height": 44
+        },
+        {
+          "text": "Twitch details",
+          "height": 44
+        },
+        {
+          "text": "Processing Queue · 4",
+          "height": 44
+        },
+        {
+          "text": "Held Redemptions · 1",
+          "height": 44
+        }
+      ],
+      "hiddenLinks": 0
+    }
+  ],
+  "errors": []
+}

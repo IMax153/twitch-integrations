@@ -301,7 +301,7 @@ describe("broadcaster routes", () => {
           assert.strictEqual(response.status, 303)
           assert.strictEqual(
             response.headers.get("location"),
-            "https://worker.example/setup?result=connected",
+            "https://worker.example/?result=connected",
           )
         }),
     )
@@ -314,7 +314,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("twitch", { code: "code-1", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=connected",
+          "https://worker.example/?result=connected",
         )
         const helix = yield* providers.twitchHelix.received
         assert.strictEqual(
@@ -350,7 +350,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("twitch", { code: "code-1", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=connected",
+          "https://worker.example/?result=connected",
         )
         assert.deepStrictEqual(yield* channelStore.readReward, Option.none())
       }),
@@ -406,16 +406,13 @@ describe("broadcaster routes", () => {
         const { state } = yield* startAttempt("spotify")
         const denied = yield* callback("spotify", { error: "access_denied", state })
         assert.strictEqual(denied.status, 303)
-        assert.strictEqual(
-          denied.headers.get("location"),
-          "https://worker.example/setup?result=denied",
-        )
+        assert.strictEqual(denied.headers.get("location"), "https://worker.example/?result=denied")
         assert.lengthOf(yield* providers.received, 0)
         // The Attempt is gone: a later callback that does carry a code cannot use it.
         const retry = yield* callback("spotify", { code: "code-1", state })
         assert.strictEqual(
           retry.headers.get("location"),
-          "https://worker.example/setup?result=attempt-mismatch",
+          "https://worker.example/?result=attempt-mismatch",
         )
       }),
     )
@@ -428,7 +425,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("twitch", { error: "access_denied", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=denied",
+          "https://worker.example/?result=denied",
         )
       }),
     )
@@ -444,7 +441,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("twitch", { code: "code-1", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=exchange-failed",
+          "https://worker.example/?result=exchange-failed",
         )
         assert.lengthOf(yield* providers.received, 1)
         assert.strictEqual((yield* getConnections)[1]?.status, "Not Configured")
@@ -459,7 +456,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("spotify", { state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=missing-code",
+          "https://worker.example/?result=missing-code",
         )
         assert.lengthOf(yield* providers.received, 0)
       }),
@@ -474,7 +471,7 @@ describe("broadcaster routes", () => {
         const replay = yield* callback("twitch", { code: "code-1", state })
         assert.strictEqual(
           replay.headers.get("location"),
-          "https://worker.example/setup?result=attempt-mismatch",
+          "https://worker.example/?result=attempt-mismatch",
         )
         // The code was presented once: the replay never reached the token endpoint.
         const exchanges = (yield* providers.twitchAuth.received).filter(
@@ -496,7 +493,7 @@ describe("broadcaster routes", () => {
         )
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=identity-mismatch",
+          "https://worker.example/?result=identity-mismatch",
         )
         assert.lengthOf(yield* providers.received, 0)
         assert.strictEqual((yield* getConnections)[0]?.status, "Not Configured")
@@ -512,7 +509,7 @@ describe("broadcaster routes", () => {
         const response = yield* callback("spotify", { code: "code-1", state })
         assert.strictEqual(
           response.headers.get("location"),
-          "https://worker.example/setup?result=attempt-expired",
+          "https://worker.example/?result=attempt-expired",
         )
         assert.lengthOf(yield* providers.received, 0)
       }),
@@ -529,7 +526,7 @@ describe("broadcaster routes", () => {
           assert.strictEqual(response.status, 303)
           // The redirect stays on whichever origin the callback arrived at.
           const location = new URL(response.headers.get("location") ?? "")
-          assert.strictEqual(location.pathname, "/setup")
+          assert.strictEqual(location.pathname, "/")
           assert.strictEqual(location.searchParams.get("result"), failure.result)
           assert.deepStrictEqual(
             yield* current.stores.spotify.readConnection,

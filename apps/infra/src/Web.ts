@@ -13,12 +13,13 @@ const devPort = 5173
 
 /**
  * The Broadcaster Page: the Foldkit app in `apps/web`, built by Vite under the
- * `/setup/` base and served as an assets-only Worker on the `/setup*` route.
+ * `/` base and served as an assets-only Worker on the `/*` route. More
+ * specific API, OAuth, and EventSub routes take precedence.
  */
 export const WebSite = Effect.gen(function* () {
   return yield* Cloudflare.Website.Foldkit("Web", {
     rootDir: "apps/web",
-    routes: [broadcasterRoute("/setup*")],
+    routes: [broadcasterRoute("/*")],
     ...(yield* enrollment),
     workersDev: false,
     dev: { host: devHost, port: devPort },
