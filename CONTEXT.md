@@ -43,3 +43,37 @@ _Avoid_: Owner, profile
 **Reauthorization Required**:
 The Connection status meaning the Provider rejected the refresh token and the Broadcaster must authorize again.
 _Avoid_: Expired, revoked, broken
+
+### Channel
+
+**Channel**:
+The deployment's view of the one connected Twitch channel: its Rewards, its Live or Offline state, and its Event Subscriptions. A Connection is the authorization; the Channel is what the deployment does with it.
+_Avoid_: Stream, broadcaster (for the channel), handler
+
+**Event Subscription**:
+A registration with Twitch EventSub asking for one kind of notification about the Channel, such as a Redemption of a Reward or the stream going online. Distinct from a viewer subscribing to the channel.
+_Avoid_: Subscription, listener, webhook
+
+### Rewards and redemptions
+
+**Reward**:
+A custom channel point reward the deployment created and owns on the Twitch channel. Only the deployment can pause it or settle its Redemptions; rewards the Broadcaster made in the Twitch dashboard are not Rewards.
+_Avoid_: Channel point, custom reward, incentive
+
+**Redemption**:
+One viewer's spend of channel points on a Reward, arriving with the viewer's input. The deployment ends every Redemption by fulfilling it or cancelling it, and cancelling refunds the points.
+_Avoid_: Event, request, claim
+
+**Song Request**:
+The Reward whose input is a Spotify track link, redeemed to add that track to the Broadcaster's Spotify queue.
+_Avoid_: Song reward, track request, queue request
+
+### Stream state
+
+**Live**:
+The channel state in which the Twitch Connected Account is streaming, learned from Twitch when the Twitch Connection is authorized and kept current from Twitch's online and offline notifications. Rewards can be redeemed only while Live.
+_Avoid_: Online, streaming, on air
+
+**Offline**:
+The channel state in which the Twitch Connected Account is not streaming, or the deployment does not yet know. Rewards are paused, and any Redemption that still arrives is cancelled.
+_Avoid_: Down, not live, unknown
