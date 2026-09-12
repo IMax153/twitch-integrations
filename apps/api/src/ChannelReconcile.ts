@@ -89,7 +89,7 @@ const make = Effect.gen(function* () {
     function* () {
       const summary = yield* connections.describe("twitch")
       return summary.connectedAccount === null
-        ? yield* new ConnectionNotConfigured({ provider: "twitch" })
+        ? yield* ConnectionNotConfigured.make({ provider: "twitch" })
         : summary.connectedAccount.id
     },
   )

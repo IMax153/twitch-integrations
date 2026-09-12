@@ -1,5 +1,11 @@
 import foldkitRecommended from "@foldkit/oxlint-plugin/recommended.json" with { type: "json" }
-import { recommended } from "@effect/tsgo/oxlint-presets"
+import {
+  antipattern,
+  correctness,
+  effectNative,
+  recommended,
+  style,
+} from "@effect/tsgo/oxlint-presets"
 import { type ViteUserConfig, defineConfig } from "vite-plus"
 
 type LintPreset = NonNullable<NonNullable<ViteUserConfig["lint"]>["extends"]>[number]
@@ -16,7 +22,7 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [".direnv"],
-    extends: [recommended, foldkitPreset],
+    extends: [recommended, antipattern, correctness, effectNative, style, foldkitPreset],
     plugins: ["typescript"],
     jsPlugins: [
       {
@@ -39,7 +45,18 @@ export default defineConfig({
         },
       ],
       "vite-plus/prefer-vite-plus-imports": "error",
+      // A library convention: a pipeable overload on every exported function
+      // of two or more parameters. The apps export plain functions, and
+      // Foldkit's `update` and `view` have a fixed signature.
+      "effecttsgo/missing-pipeable-signature": "off",
     },
+    overrides: [
+      {
+        // A test provides its layers itself: each test is an entry point.
+        files: ["**/test/**"],
+        rules: { "effecttsgo/strict-effect-provide": "off" },
+      },
+    ],
     options: {
       typeAware: true,
       typeCheck: true,

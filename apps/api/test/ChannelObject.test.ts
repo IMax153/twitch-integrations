@@ -16,7 +16,7 @@ import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
 import { songRequestReward, twitchConnection } from "./fixtures.ts"
 
-const at = (iso: string) => TestClock.setTime(DateTime.toEpochMillis(DateTime.makeUnsafe(iso)))
+const at = (iso: string) => DateTime.makeUnsafe(iso).pipe(DateTime.toEpochMillis, TestClock.setTime)
 
 /** Helix as the tests start it: accepting the stored Connection's token, with whatever else the test says. */
 const helixScenario = (
@@ -336,7 +336,7 @@ describe("ChannelObject.reconcile", () => {
       const world = yield* makeBroadcasterWorld
       yield* at("2026-09-11T12:00:00Z")
       const failure = yield* Effect.flip(world.channel.reconcile())
-      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "twitch" }))
+      assert.deepStrictEqual(failure, ConnectionNotConfigured.make({ provider: "twitch" }))
       assert.deepStrictEqual(yield* world.providers.received, [])
       assert.deepStrictEqual(yield* world.channelStore.readReward, Option.none())
     }).pipe(Effect.scoped),
@@ -386,7 +386,7 @@ describe("ChannelObject construction", () => {
       const channel = yield* world.rebuildChannel
       // No Twitch Connection, so the start-up reconcile failed; the object still answers.
       const failure = yield* Effect.flip(channel.reconcile())
-      assert.deepStrictEqual(failure, new ConnectionNotConfigured({ provider: "twitch" }))
+      assert.deepStrictEqual(failure, ConnectionNotConfigured.make({ provider: "twitch" }))
     }).pipe(Effect.scoped),
   )
 })

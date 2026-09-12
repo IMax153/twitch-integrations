@@ -369,16 +369,17 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
     ),
     "GET /helix/streams": userEndpoint((scenario, received) =>
       respond(200, {
-        data: scenario.live
-          ? [
-              {
-                id: "stream-1",
-                user_id: query(received).get("user_id"),
-                type: "live",
-                started_at: "2026-09-11T11:00:00Z",
-              },
-            ]
-          : [],
+        data:
+          scenario.live === true
+            ? [
+                {
+                  id: "stream-1",
+                  user_id: query(received).get("user_id"),
+                  type: "live",
+                  started_at: "2026-09-11T11:00:00Z",
+                },
+              ]
+            : [],
         pagination: {},
       }),
     ),

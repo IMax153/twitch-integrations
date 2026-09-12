@@ -83,6 +83,8 @@ export class ChannelObject extends Cloudflare.DurableObject<ChannelObject>()(
     // The Connection objects' namespace is resolved here, in the init
     // Effect, which is the only place the hosting Worker's services are
     // available; the instance Effect below may need only the object's own.
+    // The object's init is its entry point.
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide
     const connections = yield* Effect.provide(Connections, Connections.layer)
     // Alchemy's constructor contract: the init Effect returns the Effect that
     // builds the instance, so the nested Effect here is intended.

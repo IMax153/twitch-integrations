@@ -43,7 +43,7 @@ const withLifecycle = <A, E>(
   ) => Effect.Effect<A, E>,
 ) =>
   Effect.gen(function* () {
-    yield* TestClock.setTime(DateTime.toEpochMillis(noon))
+    yield* noon.pipe(DateTime.toEpochMillis, TestClock.setTime)
     return yield* body(yield* ConnectionLifecycle, yield* ConnectionStore)
   }).pipe(Effect.provide(lifecycleLayer))
 

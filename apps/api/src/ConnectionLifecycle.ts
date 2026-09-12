@@ -172,8 +172,8 @@ const make = Effect.gen(function* () {
   const store = yield* ConnectionStore
   const provider = yield* Provider
   const alarm = yield* RefreshAlarm
-  const notConfigured = new ConnectionNotConfigured({ provider: provider.name })
-  const reauthorizationRequired = new ReauthorizationRequired({ provider: provider.name })
+  const notConfigured = ConnectionNotConfigured.make({ provider: provider.name })
+  const reauthorizationRequired = ReauthorizationRequired.make({ provider: provider.name })
 
   // NOTE: one permit, so a refresh, a token replacement, and the alarm never
   // interleave their read-then-write of the Connection, and concurrent token
