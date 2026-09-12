@@ -7,8 +7,11 @@ import * as Option from "effect/Option"
 import * as TestClock from "effect/testing/TestClock"
 import { testTransport } from "../../api/test/BroadcasterHarness.ts"
 import {
+  authorizedConnection,
   manageableSongRequest,
+  neverGonnaId,
   songRequestReward,
+  spotifyWithTracks,
   storedSubscriptions,
   twitchConnection,
 } from "../../api/test/fixtures.ts"
@@ -133,8 +136,8 @@ const streamBody = (subscriptionId: string, type: "stream.online" | "stream.offl
     },
   })
 
-/** A redemption add notification's body, for the reward with the ID. */
-const redemptionBody = (rewardId: string) =>
+/** A redemption add notification's body, for the reward with the ID, with the input the viewer typed. */
+const redemptionBody = (rewardId: string, input = "spotify:track:abc") =>
   JSON.stringify({
     subscription: {
       id: "sub-redemption",
@@ -154,7 +157,7 @@ const redemptionBody = (rewardId: string) =>
       user_id: "viewer-1",
       user_login: "viewer",
       user_name: "Viewer",
-      user_input: "spotify:track:abc",
+      user_input: input,
       status: "unfulfilled",
       reward: { id: rewardId, title: "Song Request", cost: 1, prompt: songRequestSettings.prompt },
       redeemed_at: "2026-09-11T12:00:03.17106713Z",
@@ -189,6 +192,15 @@ const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
   })
   yield* world.channelStore.writeReward({ ...songRequestReward, isPaused })
   yield* world.channelStore.replaceEventSubscriptions(storedSubscriptions)
+  return world
+})
+
+/** The world Live, with Spotify authorized too and knowing one track, so a Song Request can run to its end. */
+const worldLiveWithSpotify = Effect.fnUntraced(function* () {
+  const world = yield* worldWithReward(false)
+  yield* world.channelStore.writeState("Live")
+  yield* world.stores.spotify.writeConnection(authorizedConnection)
+  yield* world.providers.spotifyWeb.set(spotifyWithTracks())
   return world
 })
 
@@ -479,5 +491,40 @@ describe("the receiver and the Channel", () => {
       )
       assert.deepStrictEqual(yield* world.providers.received, [])
     }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "a Song Request while Live queues the track, fulfils, and replies before anything else",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldLiveWithSpotify()
+        const request = yield* signedRequest({
+          type: "notification",
+          body: redemptionBody(
+            "reward-1",
+            `https://open.spotify.com/track/${neverGonnaId}?si=share-token`,
+          ),
+        })
+        yield* assertAccepted(yield* world.receive(request))
+        // Acknowledged first: the slow work had not started when Twitch got its answer.
+        assert.deepStrictEqual(yield* world.providers.received, [])
+        yield* world.settled
+        const requests = yield* world.providers.received
+        assert.deepStrictEqual(
+          requests.map((received) => `${received.method} ${received.url}`),
+          [
+            `POST https://api.spotify.com/v1/me/player/queue?uri=spotify%3Atrack%3A${neverGonnaId}`,
+            `GET https://api.spotify.com/v1/tracks/${neverGonnaId}`,
+            `PATCH ${rewardsUrl}/redemptions?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`,
+            "POST https://api.twitch.tv/helix/chat/messages",
+          ],
+        )
+        assert.deepStrictEqual(requests[2]?.json, { status: "FULFILLED" })
+        assert.deepStrictEqual(requests[3]?.json, {
+          broadcaster_id: "twitch-user-1",
+          sender_id: "twitch-user-1",
+          message: "@Viewer added Never Gonna Give You Up by Rick Astley to the queue.",
+        })
+      }).pipe(Effect.scoped),
   )
 })

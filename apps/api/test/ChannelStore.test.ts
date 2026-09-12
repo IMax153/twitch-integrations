@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
-import { songRequestReward, storedSubscriptions } from "./fixtures.ts"
+import { redemptionOf, songRequestReward, storedSubscriptions } from "./fixtures.ts"
 
 /** A fresh in-memory database per test, running the real store over it. */
 const storeLayer = ChannelStore.layer.pipe(
@@ -64,6 +64,41 @@ describe("ChannelStore", () => {
         ])
         yield* store.replaceEventSubscriptions([])
         assert.deepStrictEqual(yield* store.readEventSubscriptions, [])
+      }),
+    ),
+  )
+})
+
+describe("ChannelStore processing queue", () => {
+  const redemption = (id: string) => redemptionOf("reward-1", `spotify:track:${id}`, id)
+
+  it.effect("hands Redemptions back oldest first and drops each once removed", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.none())
+        yield* store.enqueueRedemption(redemption("redemption-1"))
+        yield* store.enqueueRedemption(redemption("redemption-2"))
+        yield* store.enqueueRedemption(redemption("redemption-3"))
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.some(redemption("redemption-1")))
+        yield* store.removeRedemption("redemption-1")
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.some(redemption("redemption-2")))
+        yield* store.removeRedemption("redemption-2")
+        yield* store.removeRedemption("redemption-3")
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.none())
+      }),
+    ),
+  )
+
+  it.effect("keeps a Redemption enqueued twice once, in its first position", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.enqueueRedemption(redemption("redemption-1"))
+        yield* store.enqueueRedemption(redemption("redemption-2"))
+        yield* store.enqueueRedemption(redemption("redemption-1"))
+        yield* store.removeRedemption("redemption-1")
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.some(redemption("redemption-2")))
+        yield* store.removeRedemption("redemption-2")
+        assert.deepStrictEqual(yield* store.nextRedemption, Option.none())
       }),
     ),
   )

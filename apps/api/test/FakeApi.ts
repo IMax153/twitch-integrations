@@ -41,7 +41,11 @@ export type Endpoint<Scenario> = (
   received: ReceivedRequest,
 ) => FakeResponse
 
-/** A fake API: the hostname it plays and its endpoints keyed by method and path, as `GET /v1/me`. */
+/**
+ * A fake API: the hostname it plays and its endpoints keyed by method and
+ * path, as `GET /v1/me`. A key ending in `/*`, as `GET /v1/tracks/*`,
+ * answers every path under it.
+ */
 export interface FakeApiDefinition<Scenario extends WithLatency> {
   readonly hostname: string
   readonly endpoints: Readonly<Record<string, Endpoint<Scenario>>>
@@ -96,6 +100,22 @@ const record = (request: HttpClientRequest.HttpClientRequest, url: URL): Receive
   json: decodeJson(request),
 })
 
+/** The endpoint answering the request: the one keyed by its exact path, else the one whose `/*` key covers it. */
+const endpointFor = <Scenario extends WithLatency>(
+  definition: FakeApiDefinition<Scenario>,
+  received: ReceivedRequest,
+): Endpoint<Scenario> | undefined => {
+  const path = `${received.method} ${new URL(received.url).pathname}`
+  const exact = definition.endpoints[path]
+  if (exact !== undefined) {
+    return exact
+  }
+  const prefix = Object.keys(definition.endpoints).find(
+    (key) => key.endsWith("/*") && path.startsWith(key.slice(0, -1)),
+  )
+  return prefix === undefined ? undefined : definition.endpoints[prefix]
+}
+
 /** Builds one fake API over the shared log from its definition. */
 export const makeFakeApi = <Scenario extends WithLatency>(
   definition: FakeApiDefinition<Scenario>,
@@ -115,7 +135,7 @@ export const makeFakeApi = <Scenario extends WithLatency>(
       if (current?.latency !== undefined) {
         yield* Effect.sleep(current.latency)
       }
-      const endpoint = definition.endpoints[`${received.method} ${new URL(received.url).pathname}`]
+      const endpoint = endpointFor(definition, received)
       return endpoint === undefined
         ? respond(404, { error: "not found" })
         : endpoint(current, received)

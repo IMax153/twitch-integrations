@@ -11,7 +11,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
-import { type ProviderFailureReason, failureReason } from "./Provider.ts"
+import { type ProviderFailureReason, failureReason, refusalDetail } from "./Provider.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
 
 export type HelixOperation =
@@ -22,6 +22,8 @@ export type HelixOperation =
   | "create subscription"
   | "delete subscription"
   | "get stream"
+  | "update redemption"
+  | "send chat message"
 
 /**
  * A Helix call failed. Carries only what the failure was, never the request
@@ -41,16 +43,10 @@ const HelixError = Schema.Struct({ message: Schema.String }).annotate({ identifi
 
 const readHelixError = HttpClientResponse.schemaBodyJson(HelixError)
 
-/** Twitch's message for a refused request, or none when the failure was not a refusal or carried no message. */
-const helixMessage = (
-  cause: HttpClientError.HttpClientError | Schema.SchemaError,
-): Effect.Effect<Option.Option<string>> =>
-  cause._tag === "HttpClientError" && cause.reason._tag === "StatusCodeError"
-    ? readHelixError(cause.reason.response).pipe(
-        Effect.map((body) => Option.some(body.message)),
-        Effect.orElseSucceed(Option.none),
-      )
-    : Effect.succeed(Option.none())
+/** Twitch's message for a refused request, when it gave one. */
+const helixMessage = refusalDetail((response) =>
+  Effect.map(readHelixError(response), (body) => body.message),
+)
 
 /** An Event Subscription as Helix reports it. */
 export interface HelixEventSubscription {
@@ -80,6 +76,15 @@ export interface WebhookTransport {
 
 /** An access token as the Channel holds it: redacted, so it never prints. */
 export type AccessToken = Redacted.Redacted<string>
+
+/** The two ways a Redemption ends on Twitch; cancelling refunds the viewer's points. */
+export type RedemptionStatus = "FULFILLED" | "CANCELED"
+
+/** What Twitch made of a chat message: whether it was shown, and why not when it was not. */
+export interface ChatSendResult {
+  readonly isSent: boolean
+  readonly dropReason: Option.Option<string>
+}
 
 export interface HelixService {
   /** The custom rewards on the channel that this client ID may manage. */
@@ -117,6 +122,20 @@ export interface HelixService {
     token: AccessToken,
     userId: string,
   ) => Effect.Effect<boolean, HelixRequestFailed>
+  /** Ends a Redemption of the Reward; Twitch allows this only while it is unfulfilled. */
+  readonly updateRedemptionStatus: (
+    token: AccessToken,
+    broadcasterId: string,
+    rewardId: string,
+    redemptionId: string,
+    status: RedemptionStatus,
+  ) => Effect.Effect<void, HelixRequestFailed>
+  /** Sends a chat message to the broadcaster's chat as the broadcaster, who is the Twitch Connected Account. */
+  readonly sendChatMessage: (
+    token: AccessToken,
+    broadcasterId: string,
+    message: string,
+  ) => Effect.Effect<ChatSendResult, HelixRequestFailed>
 }
 
 const helix = "https://api.twitch.tv/helix"
@@ -124,6 +143,8 @@ const helix = "https://api.twitch.tv/helix"
 const rewardsEndpoint = `${helix}/channel_points/custom_rewards`
 const subscriptionsEndpoint = `${helix}/eventsub/subscriptions`
 const streamsEndpoint = `${helix}/streams`
+const redemptionsEndpoint = `${rewardsEndpoint}/redemptions`
+const chatEndpoint = `${helix}/chat/messages`
 
 const RewardWire = Schema.Struct({
   id: Schema.String,
@@ -159,7 +180,22 @@ const StreamsResponse = Schema.Struct({ data: Schema.Array(StreamWire) }).annota
   identifier: "StreamsResponse",
 })
 
+/** Why Twitch did not show a chat message, given when `is_sent` is false. */
+const DropReason = Schema.Struct({ code: Schema.String, message: Schema.String }).annotate({
+  identifier: "DropReason",
+})
+
+const ChatMessageWire = Schema.Struct({
+  is_sent: Schema.Boolean,
+  drop_reason: DropReason.pipe(Schema.NullOr, Schema.optional),
+}).annotate({ identifier: "ChatMessageWire" })
+
+const ChatMessagesResponse = Schema.Struct({ data: Schema.Array(ChatMessageWire) }).annotate({
+  identifier: "ChatMessagesResponse",
+})
+
 const readRewards = HttpClientResponse.schemaBodyJson(RewardsResponse)
+const readChatMessages = HttpClientResponse.schemaBodyJson(ChatMessagesResponse)
 const readEventSubscriptions = HttpClientResponse.schemaBodyJson(EventSubscriptionsResponse)
 const readStreams = HttpClientResponse.schemaBodyJson(StreamsResponse)
 
@@ -353,6 +389,42 @@ const make = Effect.gen(function* () {
         return response.data.some((stream) => stream.type === "live")
       },
       Effect.catch(failed("get stream")),
+    ),
+
+    updateRedemptionStatus: (token, broadcasterId, rewardId, redemptionId, status) =>
+      HttpClientRequest.patch(redemptionsEndpoint).pipe(
+        HttpClientRequest.setUrlParams({
+          broadcaster_id: broadcasterId,
+          reward_id: rewardId,
+          id: redemptionId,
+        }),
+        HttpClientRequest.bodyJsonUnsafe({ status }),
+        authorized(token),
+        client.execute,
+        Effect.asVoid,
+        Effect.catch(failed("update redemption")),
+      ),
+
+    sendChatMessage: Effect.fn("Helix.sendChatMessage")(
+      function* (token: AccessToken, broadcasterId: string, message: string) {
+        const request = HttpClientRequest.post(chatEndpoint).pipe(
+          HttpClientRequest.bodyJsonUnsafe({
+            broadcaster_id: broadcasterId,
+            sender_id: broadcasterId,
+            message,
+          }),
+          authorized(token),
+        )
+        const response = yield* readChatMessages(yield* client.execute(request))
+        const sent = yield* single("send chat message")(response)
+        return {
+          isSent: sent.is_sent,
+          dropReason: Option.fromNullishOr(sent.drop_reason).pipe(
+            Option.map((reason) => `${reason.code}: ${reason.message}`),
+          ),
+        }
+      },
+      Effect.catch(failed("send chat message")),
     ),
   }
   return service
