@@ -123,7 +123,7 @@ export class ChannelObject extends Cloudflare.DurableObject<ChannelObject, Chann
           const instanceScope = yield* Scope.make()
           const services = yield* Layer.buildWithScope(
             channelObjectLayer.pipe(
-              Layer.provide(DoSqlite.layer({ db: state.storage.sql.raw })),
+              Layer.provide(DoSqlite.layer({ storage: state.raw.storage })),
               Layer.provide(ProviderCredentials.layer),
               Layer.provide(FetchHttpClient.layer),
               Layer.provide(Layer.succeed(Connections, connections)),
