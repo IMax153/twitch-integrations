@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T00:00:00Z",
+  "title": "Design System: Broadcaster Page",
+  "extensions": {
+    "breakpoints": [
+      { "name": "compact", "value": "68rem" },
+      { "name": "narrow", "value": "40rem" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Shared native Refresh, Connect, and Reconnect control.",
+      "html": "<button class=\"ds-button\" type=\"button\">Refresh</button>",
+      "css": ".ds-button { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; min-height: 44px; padding: 0.5rem 1rem; border: 1px solid var(--line, light-dark(#d4d4d4, #454545)); border-radius: 0.5rem; color: var(--text, light-dark(#202020, #f1f1f1)); background: var(--surface, light-dark(#f5f5f5, #202020)); cursor: pointer; touch-action: manipulation; } .ds-button:hover:not(:disabled) { border-color: var(--text, light-dark(#202020, #f1f1f1)); } .ds-button:active:not(:disabled) { background: var(--line, light-dark(#d4d4d4, #454545)); } .ds-button:disabled { opacity: 0.55; cursor: wait; } .ds-button:focus-visible { outline: 3px solid var(--focus, light-dark(#285aa8, #a9c8ff)); outline-offset: 3px; }"
+    },
+    {
+      "name": "Section",
+      "kind": "card",
+      "refersTo": "section",
+      "description": "Flat bordered container for summaries and details.",
+      "html": "<section class=\"ds-section\"><h2>Connections</h2><p>Connection status unavailable</p></section>",
+      "css": ".ds-section { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; min-width: 0; padding: 1.5rem; border: 1px solid var(--line, light-dark(#d4d4d4, #454545)); border-radius: 0.5rem; color: var(--text, light-dark(#202020, #f1f1f1)); background: var(--page, light-dark(#ffffff, #111111)); } .ds-section h2 { font-size: 1.125rem; margin: 0 0 1.25rem; } .ds-section p { margin: 0; overflow-wrap: anywhere; } @media (max-width: 40rem) { .ds-section { padding: 1.25rem; } }"
+    },
+    {
+      "name": "Disclosure",
+      "kind": "custom",
+      "refersTo": "disclosure",
+      "description": "Native inline details with a visible keyboard focus outline.",
+      "html": "<details class=\"ds-disclosure\"><summary>Spotify details</summary><div>No permissions granted yet.</div></details>",
+      "css": ".ds-disclosure { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; color: var(--text, light-dark(#202020, #f1f1f1)); background: var(--page, light-dark(#ffffff, #111111)); } .ds-disclosure summary { box-sizing: border-box; min-height: 44px; padding: 0.625rem 0; border-radius: 0.25rem; font: inherit; cursor: pointer; touch-action: manipulation; } .ds-disclosure summary:hover { color: var(--focus, light-dark(#285aa8, #a9c8ff)); } .ds-disclosure summary:focus-visible { outline: 3px solid var(--focus, light-dark(#285aa8, #a9c8ff)); outline-offset: 3px; } .ds-disclosure div { padding: 0.5rem 0 0.75rem; overflow-wrap: anywhere; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Simple section-based interface",
+    "overview": "This records the incumbent interface in `src/styles.css` and the view modules. It extends the existing Connections page with bordered monitoring sections, native controls, and inline details. No new visual world, concept seed, or imagery was introduced.\n\nThe system follows the browser's light/dark preference. Written states carry meaning; color helps the Broadcaster scan them. Route composition and refresh behavior remain in `.impeccable/surfaces/src-main-ts.md`; product scope remains in `PRODUCT.md`, with shared terminology authoritative in `../../CONTEXT.md`.",
+    "keyCharacteristics": [
+      "Neutral page grounds and thin section borders.",
+      "Native buttons, forms, and detail disclosures.",
+      "Textual states with semantic color and tabular counts.",
+      "Wrapping content and touch-sized controls."
+    ],
+    "rules": [
+      {
+        "name": "The Written State Rule",
+        "body": "Pair semantic color with explicit state or error text.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do pair semantic color with written states.",
+      "Do preserve native form and disclosure behavior.",
+      "Do retain visible keyboard focus and minimum 44px button and summary heights.",
+      "Do let long account names, identifiers, and Redemption inputs wrap."
+    ],
+    "donts": [
+      "Don't turn semantic status color into an unlabeled health indicator.",
+      "Don't replace the incumbent section-based interface with a separate navigation shell as part of an ordinary extension.",
+      "Don't infer new brand colors, fonts, motion, or imagery from this documentation pass."
+    ]
+  }
+}

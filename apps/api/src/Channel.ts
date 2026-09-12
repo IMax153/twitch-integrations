@@ -1,4 +1,5 @@
 import { Notification } from "@twitch-integrations/domain/Notification"
+import type { ChannelMonitoringEncoded } from "@twitch-integrations/domain/ChannelMonitoring"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -7,6 +8,7 @@ import { ChannelObject, type ChannelObjectShape } from "./ChannelObject.ts"
 import type { ReconcileError } from "./ChannelReconcile.ts"
 
 export interface ChannelService {
+  readonly describe: Effect.Effect<ChannelMonitoringEncoded>
   /**
    * Runs the Channel's reconcile. In production a failure arrives over the
    * RPC as a plain object carrying the error's tag and fields, so callers
@@ -29,6 +31,7 @@ const encodeNotification = Schema.encodeSync(Notification)
  * and the Worker's init runs there too.
  */
 const fromObject = (object: () => ChannelObjectShape): ChannelService => ({
+  describe: Effect.suspend(() => object().describe()),
   reconcile: Effect.suspend(() => object().reconcile()),
   // Encoded here, before the RPC, so what crosses it is plain JSON.
   receive: (notification) => object().receive(encodeNotification(notification)),

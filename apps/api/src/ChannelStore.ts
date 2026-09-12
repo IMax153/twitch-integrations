@@ -1,4 +1,8 @@
 import { ChannelState } from "@twitch-integrations/domain/ChannelState"
+import {
+  type ChannelMonitoring,
+  monitoringLimit,
+} from "@twitch-integrations/domain/ChannelMonitoring"
 import { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { HeldRedemption, Redemption } from "@twitch-integrations/domain/Redemption"
 import { Reward } from "@twitch-integrations/domain/Reward"
@@ -11,6 +15,8 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 
 export interface ChannelStoreService {
+  /** A consistent, bounded monitoring read. Never consumes Redemptions or calls a Provider. */
+  readonly readMonitoring: Effect.Effect<ChannelMonitoring>
   /** The Reward the deployment owns, or none while it has not created or adopted one. */
   readonly readReward: Effect.Effect<Option.Option<Reward>>
   /** Replaces the stored Reward entirely. */
@@ -137,6 +143,32 @@ const make = Effect.gen(function* () {
   yield* createTables(sql)
 
   const store: ChannelStoreService = {
+    readMonitoring: Effect.gen(function* () {
+      const state = yield* store.readState
+      const reward = yield* store.readReward
+      const eventSubscriptions = yield* store.readEventSubscriptions
+      const queued =
+        yield* sql<DocumentRow>`SELECT document FROM redemption_queue ORDER BY position LIMIT ${monitoringLimit}`
+      const held =
+        yield* sql<DocumentRow>`SELECT document FROM held_redemption ORDER BY position LIMIT ${monitoringLimit}`
+      const queuedCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM redemption_queue`
+      const heldCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM held_redemption`
+      return {
+        observedAt: yield* DateTime.now,
+        state,
+        reward,
+        eventSubscriptions,
+        processing: {
+          total: queuedCount[0]?.count ?? 0,
+          items: yield* Effect.forEach(queued, (row) => decodeRedemption(row.document)),
+        },
+        held: {
+          total: heldCount[0]?.count ?? 0,
+          items: yield* Effect.forEach(held, (row) => decodeHeldRedemption(row.document)),
+        },
+      }
+    }).pipe(sql.withTransaction, Effect.orDie),
+
     readReward: Effect.gen(function* () {
       const rows = yield* sql<DocumentRow>`SELECT document FROM reward WHERE id = 1`
       const row = rows[0]

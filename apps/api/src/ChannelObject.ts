@@ -1,4 +1,8 @@
 import * as DoSqlite from "@effect/sql-sqlite-do/SqliteClient"
+import {
+  ChannelMonitoring,
+  type ChannelMonitoringEncoded,
+} from "@twitch-integrations/domain/ChannelMonitoring"
 import { Notification, type NotificationEncoded } from "@twitch-integrations/domain/Notification"
 import { hasSettings, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import { observed } from "@twitch-integrations/infra/Failure"
@@ -32,6 +36,9 @@ import { TwitchAppToken } from "./TwitchAppToken.ts"
  * a method, as on the Connection object.
  */
 export type ChannelObjectShape = {
+  /** Encoded, bounded monitoring snapshot across the RPC boundary. */
+  // oxlint-disable-next-line effecttsgo/lazy-effect
+  readonly describe: () => Effect.Effect<ChannelMonitoringEncoded>
   /**
    * Brings the channel in line with the spec. Failures cross the boundary
    * as plain objects carrying their tag and fields.
@@ -48,6 +55,7 @@ export type ChannelObjectShape = {
 }
 
 const decodeNotification = Schema.decodeUnknownEffect(Notification)
+const encodeMonitoring = Schema.encodeEffect(ChannelMonitoring)
 
 /**
  * The object's behavior over its services, independent of Durable Object
@@ -72,6 +80,7 @@ export const makeChannelObject: Effect.Effect<
   }
   yield* queue.kick
   return {
+    describe: () => store.readMonitoring.pipe(Effect.flatMap(encodeMonitoring), Effect.orDie),
     reconcile: () => observed(reconcile),
     // The receiver only ever sends what it encoded from this schema, so a
     // notification that does not decode is a defect, not a failure to report.
