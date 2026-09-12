@@ -776,3 +776,113 @@ describe("ChannelObject.receive of a Song Request whose fulfil fails", () => {
     }).pipe(Effect.scoped),
   )
 })
+
+/** The world with the Reward stored and the Twitch Connection Reauthorization Required, so no cancel can reach Twitch. */
+const worldWithTwitchDisconnected = Effect.fnUntraced(function* () {
+  const world = yield* worldWithReward(false)
+  yield* world.stores.twitch.writeConnection({
+    ...twitchConnection,
+    status: "Reauthorization Required",
+  })
+  return world
+})
+
+const heldOf = (id: string, input: string) => ({
+  redemption: redemptionOf("reward-1", input, id),
+  reason: "TwitchUnavailable" as const,
+})
+
+describe("ChannelObject.receive of a Song Request while Twitch is disconnected", () => {
+  it.effect("holds each Redemption it cannot cancel and goes on with the next", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithTwitchDisconnected()
+      // Offline, so each Redemption is cancelled without a Spotify call.
+      yield* world.channel.receive(
+        notification("message-1", redemptionAdded("reward-1", "not a link", "redemption-1")),
+      )
+      yield* world.channel.receive(
+        notification("message-2", redemptionAdded("reward-1", "still not", "redemption-2")),
+      )
+      yield* world.settled
+      assert.deepStrictEqual(yield* world.providers.received, [])
+      assert.deepStrictEqual(yield* world.channelStore.readHeldRedemptions, [
+        heldOf("redemption-1", "not a link"),
+        heldOf("redemption-2", "still not"),
+      ])
+      // Both left the Processing Queue: a restart processes nothing again.
+      yield* world.rebuildChannel
+      yield* world.settled
+      assert.deepStrictEqual(yield* world.providers.received, [])
+    }).pipe(Effect.scoped),
+  )
+})
+
+/** The world with two Redemptions held while Twitch had no Connection, and Twitch since reconnected. */
+const worldWithHeldRedemptions = Effect.fnUntraced(function* () {
+  const world = yield* makeBroadcasterWorld
+  yield* at("2026-09-11T12:00:00Z")
+  yield* world.channelStore.writeReward(songRequestReward)
+  yield* world.channel.receive(
+    notification("message-1", redemptionAdded("reward-1", "not a link", "redemption-1")),
+  )
+  yield* world.channel.receive(
+    notification("message-2", redemptionAdded("reward-1", "still not", "redemption-2")),
+  )
+  yield* world.settled
+  yield* world.stores.twitch.writeConnection(twitchConnection)
+  yield* world.providers.twitchHelix.set(
+    helixScenario({ manageableRewards: [manageableSongRequest] }),
+  )
+  return world
+})
+
+describe("ChannelObject.reconcile with held Redemptions", () => {
+  it.effect("cancels every held Redemption in arrival order before touching the Reward", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithHeldRedemptions()
+      assert.lengthOf(yield* world.channelStore.readHeldRedemptions, 2)
+      yield* world.channel.reconcile()
+      const requests = yield* helixRequests(world)
+      assert.deepStrictEqual(lines(requests.slice(0, 3)), [
+        `PATCH ${redemptionsUrl}?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`,
+        `PATCH ${redemptionsUrl}?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-2`,
+        `PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`,
+      ])
+      assert.deepStrictEqual(
+        requests.slice(0, 2).map((request) => request.json),
+        [{ status: "CANCELED" }, { status: "CANCELED" }],
+      )
+      assert.deepStrictEqual(yield* world.channelStore.readHeldRedemptions, [])
+      // Settled once: the next reconcile has nothing to cancel.
+      yield* world.channel.reconcile()
+      assert.lengthOf(yield* redemptionUpdates(world), 2)
+    }).pipe(Effect.scoped),
+  )
+})
+
+describe("ChannelObject.reconcile with a held Redemption Twitch has already ended", () => {
+  it.effect("drops it without retrying and settles the rest", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithHeldRedemptions()
+      yield* world.providers.twitchHelix.set(
+        helixScenario({
+          manageableRewards: [manageableSongRequest],
+          endedRedemptions: ["redemption-1"],
+        }),
+      )
+      yield* world.channel.reconcile()
+      assert.deepStrictEqual(lines(yield* redemptionUpdates(world)), [
+        `PATCH ${redemptionsUrl}?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-1`,
+        `PATCH ${redemptionsUrl}?broadcaster_id=twitch-user-1&reward_id=reward-1&id=redemption-2`,
+      ])
+      assert.deepStrictEqual(yield* world.channelStore.readHeldRedemptions, [])
+      // The reconcile went on to the Reward.
+      assert.include(
+        lines(yield* rewardRequests(world)),
+        `PATCH ${rewardsUrl}?broadcaster_id=twitch-user-1&id=reward-1`,
+      )
+      yield* world.channel.reconcile()
+      assert.lengthOf(yield* redemptionUpdates(world), 2)
+    }).pipe(Effect.scoped),
+  )
+})

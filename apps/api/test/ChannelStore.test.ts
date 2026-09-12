@@ -103,3 +103,42 @@ describe("ChannelStore processing queue", () => {
     ),
   )
 })
+
+describe("ChannelStore held Redemptions", () => {
+  const held = (id: string) => ({
+    redemption: redemptionOf("reward-1", `spotify:track:${id}`, id),
+    reason: "TwitchUnavailable" as const,
+  })
+
+  it.effect("hands held Redemptions back in arrival order and forgets each once released", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [])
+        yield* store.holdRedemption(held("redemption-2"))
+        yield* store.holdRedemption(held("redemption-1"))
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [
+          held("redemption-2"),
+          held("redemption-1"),
+        ])
+        yield* store.releaseRedemption("redemption-2")
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [held("redemption-1")])
+        yield* store.releaseRedemption("redemption-1")
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [])
+      }),
+    ),
+  )
+
+  it.effect("keeps a Redemption held twice once, in its first position", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.holdRedemption(held("redemption-1"))
+        yield* store.holdRedemption(held("redemption-2"))
+        yield* store.holdRedemption(held("redemption-1"))
+        assert.deepStrictEqual(yield* store.readHeldRedemptions, [
+          held("redemption-1"),
+          held("redemption-2"),
+        ])
+      }),
+    ),
+  )
+})

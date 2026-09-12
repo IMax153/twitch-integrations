@@ -100,6 +100,8 @@ export interface TwitchHelixScenario extends WithLatency {
   readonly chatSend?: ChatSendAnswer
   /** How many Redemption updates, to either status, Helix refuses with a 500 before accepting one; every one when Infinity. */
   readonly redemptionUpdateRefusals?: number
+  /** The IDs of Redemptions no longer unfulfilled, whose updates Helix answers 404 as Twitch does. */
+  readonly endedRedemptions?: ReadonlyArray<string>
 }
 
 /** How Helix answers a chat send other than by showing the message. */
@@ -408,18 +410,26 @@ const twitchHelix: FakeApiDefinition<TwitchHelixScenario> = {
     "PATCH /helix/channel_points/custom_rewards/redemptions": userEndpoint(
       (scenario, received, earlier) => {
         const refused = earlier.filter((request) => request.url === received.url).length
+        const id = query(received).get("id")
         return refused < (scenario.redemptionUpdateRefusals ?? 0)
           ? respond(500, { error: "Internal Server Error", status: 500 })
-          : respond(200, {
-              data: [
-                {
-                  id: query(received).get("id"),
-                  broadcaster_id: query(received).get("broadcaster_id"),
-                  reward: { id: query(received).get("reward_id") },
-                  status: asRecord(received.json)["status"],
-                },
-              ],
-            })
+          : id !== null && (scenario.endedRedemptions ?? []).includes(id)
+            ? respond(404, {
+                error: "Not Found",
+                status: 404,
+                message:
+                  "The redemptions specified were not found or their statuses weren't marked as UNFULFILLED.",
+              })
+            : respond(200, {
+                data: [
+                  {
+                    id: query(received).get("id"),
+                    broadcaster_id: query(received).get("broadcaster_id"),
+                    reward: { id: query(received).get("reward_id") },
+                    status: asRecord(received.json)["status"],
+                  },
+                ],
+              })
       },
     ),
     "POST /helix/chat/messages": userEndpoint((scenario) => {

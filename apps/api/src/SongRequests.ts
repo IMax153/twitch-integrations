@@ -20,7 +20,7 @@ import { ChannelStore } from "./ChannelStore.ts"
 import { Connections } from "./Connections.ts"
 import { type AccessToken, Helix, type RedemptionStatus } from "./Helix.ts"
 import { Spotify, noActiveDevice } from "./Spotify.ts"
-import { TwitchAccess, type TwitchAccessGrant } from "./TwitchAccess.ts"
+import { TwitchAccess, type TwitchAccessGrant, type TwitchAccessService } from "./TwitchAccess.ts"
 
 export interface SongRequestsService {
   /**
@@ -43,6 +43,14 @@ const notQueued = (reason: CancellationReason) => new NotQueued({ reason })
  * meanwhile to be acknowledged.
  */
 const fulfilRetries = Schedule.max([Schedule.recurs(3), Schedule.spaced("500 millis")])
+
+/**
+ * Whether the Twitch Connection's failure means Twitch cannot be reached at
+ * all, as opposed to one request failing. The failure crosses the object RPC
+ * as a plain object, so only its tag is looked at.
+ */
+const isTwitchUnavailable = (failure: Effect.Error<TwitchAccessService["current"]>) =>
+  failure._tag === "ConnectionNotConfigured" || failure._tag === "ReauthorizationRequired"
 
 /** A track added to the Spotify queue, and the token it was added under for the lookup that follows. */
 interface Queued {
@@ -130,12 +138,28 @@ const make = Effect.gen(function* () {
       status,
     )
 
-  /** Cancels the Redemption on Twitch, which refunds the viewer, and tells them why. */
+  /**
+   * Cancels the Redemption on Twitch, which refunds the viewer, and tells
+   * them why. While the Twitch Connection has no token to give, Twitch
+   * cannot be reached, so the Redemption is held for the next reconcile to
+   * cancel instead.
+   */
   const cancel = Effect.fn("SongRequests.cancel")(function* (
     redemption: Redemption,
     reason: CancellationReason,
   ) {
-    const grant = yield* access.current
+    const granted = yield* Effect.result(access.current)
+    if (Result.isFailure(granted)) {
+      if (!isTwitchUnavailable(granted.failure)) {
+        return yield* Effect.fail(granted.failure)
+      }
+      yield* store.holdRedemption({ redemption, reason: "TwitchUnavailable" })
+      yield* Effect.logWarning(
+        `Held Redemption ${redemption.id} from ${redemption.viewerName}: ${reason}, but the Twitch Connection is ${granted.failure._tag}`,
+      )
+      return
+    }
+    const grant = granted.success
     yield* end(grant, redemption, "CANCELED")
     yield* Effect.logInfo(
       `Cancelled Redemption ${redemption.id} from ${redemption.viewerName}: ${reason}`,

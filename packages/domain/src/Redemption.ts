@@ -14,3 +14,20 @@ export const Redemption = Schema.Struct({
   redeemedAt: Schema.DateTimeUtcFromString,
 }).annotate({ identifier: "Redemption" })
 export type Redemption = typeof Redemption.Type
+
+/** Why a Redemption is held rather than ended: the Twitch Connection could not hand out a token to cancel it with. */
+export const HoldReason = Schema.Literals(["TwitchUnavailable"]).annotate({
+  identifier: "HoldReason",
+})
+export type HoldReason = typeof HoldReason.Type
+
+/**
+ * A Redemption that should have been cancelled but could not reach Twitch,
+ * kept until the next reconcile settles it. The only stored Redemption
+ * state after processing.
+ */
+export const HeldRedemption = Schema.Struct({
+  redemption: Redemption,
+  reason: HoldReason,
+}).annotate({ identifier: "HeldRedemption" })
+export type HeldRedemption = typeof HeldRedemption.Type

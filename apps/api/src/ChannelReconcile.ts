@@ -4,6 +4,7 @@ import type {
   ReauthorizationRequired,
 } from "@twitch-integrations/domain/ConnectionErrors"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
+import type { HeldRedemption } from "@twitch-integrations/domain/Redemption"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -27,7 +28,8 @@ export type ReconcileError =
 
 export interface ChannelReconcileService {
   /**
-   * Brings the channel in line with the spec, in order: the Reward is
+   * Brings the channel in line with the spec, in order: every held
+   * Redemption is cancelled, which refunds its viewer, the Reward is
    * created or its settings updated in place, this client ID's Event
    * Subscriptions are replaced, the Channel's state is seeded from Get
    * Streams, and the Reward is paused or unpaused to match. Runs under the
@@ -77,6 +79,42 @@ const make = Effect.gen(function* () {
   const access = yield* TwitchAccess
   const pause = yield* RewardPause
   const settings = songRequestSettings
+
+  /**
+   * Cancels one Redemption held while Twitch could not be reached, which
+   * refunds the viewer, and forgets it. One Twitch reports is no longer
+   * unfulfilled has been ended some other way and is forgotten too.
+   */
+  const settle = Effect.fn("ChannelReconcile.settle")(function* (
+    { token, account }: TwitchAccessGrant,
+    { redemption }: HeldRedemption,
+  ) {
+    yield* helix
+      .updateRedemptionStatus(token, account, redemption.rewardId, redemption.id, "CANCELED")
+      .pipe(
+        Effect.flatMap(() =>
+          Effect.logInfo(
+            `Cancelled held Redemption ${redemption.id} from ${redemption.viewerName}`,
+          ),
+        ),
+        Effect.catchIf(
+          (failure) => failure.reason._tag === "Status" && failure.reason.status === 404,
+          () =>
+            Effect.logInfo(
+              `Dropped held Redemption ${redemption.id} from ${redemption.viewerName}: Twitch reports it no longer unfulfilled`,
+            ),
+        ),
+      )
+    yield* store.releaseRedemption(redemption.id)
+  })
+
+  /** Cancels every held Redemption in the order they were held, before anything else on the channel is touched. */
+  const settleHeldRedemptions = Effect.fn("ChannelReconcile.settleHeldRedemptions")(function* (
+    grant: TwitchAccessGrant,
+  ) {
+    const held = yield* store.readHeldRedemptions
+    yield* Effect.forEach(held, (heldRedemption) => settle(grant, heldRedemption))
+  })
 
   /**
    * The Reward with its settings as the spec fixes them: created when none
@@ -149,6 +187,7 @@ const make = Effect.gen(function* () {
   const reconcile: Effect.Effect<void, ReconcileError> = lock.withPermit(
     Effect.gen(function* () {
       const grant = yield* access.current
+      yield* settleHeldRedemptions(grant)
       const reward = yield* ensureReward(grant)
       yield* replaceEventSubscriptions(grant.account, reward.id)
       const state = yield* seedState(grant)
