@@ -63,7 +63,7 @@ A refresh is scheduled five minutes before the access token expires. Twitch acce
 
 ### Driving the receiver locally
 
-No production Event Subscription ever points at a local receiver. Instead the [Twitch CLI](https://dev.twitch.tv/docs/cli/) sends signed test messages to it. With the dev server running and `TWITCH_EVENTSUB_SECRET` set in `.env`, verify the challenge handshake:
+No production Event Subscription ever points at a local receiver: under `alchemy dev` the Channel's reconcile creates and updates the Reward but leaves Event Subscriptions alone, and logs that it did. Instead the [Twitch CLI](https://dev.twitch.tv/docs/cli/) sends signed test messages to it. With the dev server running and `TWITCH_EVENTSUB_SECRET` set in `.env`, verify the challenge handshake:
 
 ```sh
 twitch event verify-subscription channel.channel_points_custom_reward_redemption.add \
@@ -88,7 +88,7 @@ The deployed shape is described in [ADR 0002](docs/adr/0002-two-workers-on-one-c
 
 ## Workspace
 
-- `apps/api` is the API Worker: the OAuth routes, the Connection Durable Object, and the JSON the page reads.
+- `apps/api` is the API Worker: the OAuth routes, the Connection Durable Objects, the Channel Durable Object that owns the Song Request Reward and the Event Subscriptions, and the JSON the page reads.
 - `apps/web` is the Broadcaster Page, a Foldkit application built under `/setup/`.
 - `apps/eventsub` is the receiver: the one public Worker, on `/eventsub*`, that verifies Twitch's EventSub webhook messages.
 - `apps/infra` holds the Cloudflare Access application and the shared hostname.

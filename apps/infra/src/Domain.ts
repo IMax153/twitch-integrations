@@ -23,3 +23,9 @@ export const broadcasterRoute = (pathPattern: `/${string}`) => ({
   pattern: `${broadcasterHostname}${pathPattern}`,
   zoneName,
 })
+
+/** The one path on the shared hostname that Twitch delivers EventSub webhook messages to. */
+export const eventSubPath = "/eventsub/twitch"
+
+/** The callback URL every Event Subscription names: the receiver on the shared hostname. */
+export const eventSubCallbackUrl = `https://${broadcasterHostname}${eventSubPath}`

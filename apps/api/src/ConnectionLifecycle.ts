@@ -200,22 +200,20 @@ const make = Effect.gen(function* () {
    * alarm for it: in that order, so an object evicted between the two
    * resumes from what it stored rather than from an alarm it cannot explain.
    */
-  const scheduleAt = (connection: Connection, at: DateTime.Utc): Effect.Effect<Connection> =>
-    Effect.gen(function* () {
-      const scheduled = { ...connection, nextRefreshAt: Option.some(at) }
-      yield* store.writeConnection(scheduled)
-      yield* alarm.schedule(at)
-      return scheduled
-    })
+  const scheduleAt = Effect.fnUntraced(function* (connection: Connection, at: DateTime.Utc) {
+    const scheduled: Connection = { ...connection, nextRefreshAt: Option.some(at) }
+    yield* store.writeConnection(scheduled)
+    yield* alarm.schedule(at)
+    return scheduled
+  })
 
   /** Stores the Connection with no refresh ahead of it and disarms the alarm. */
-  const unschedule = (connection: Connection): Effect.Effect<Connection> =>
-    Effect.gen(function* () {
-      const settled = { ...connection, nextRefreshAt: Option.none() }
-      yield* store.writeConnection(settled)
-      yield* alarm.cancel
-      return settled
-    })
+  const unschedule = Effect.fnUntraced(function* (connection: Connection) {
+    const settled: Connection = { ...connection, nextRefreshAt: Option.none() }
+    yield* store.writeConnection(settled)
+    yield* alarm.cancel
+    return settled
+  })
 
   /** Installs a new Connection: with its refresh scheduled when it can be refreshed, otherwise with none. */
   const install = (connection: Connection, now: DateTime.Utc): Effect.Effect<Connection> =>
@@ -246,38 +244,39 @@ const make = Effect.gen(function* () {
         : Effect.fail(failure)
 
   /** Contacts the Provider and installs the response. Runs under the lock. */
-  const refreshConnection = ({
+  const refreshConnection = Effect.fn("ConnectionLifecycle.refresh")(function* ({
     connection,
     refreshToken,
-  }: Refreshable): Effect.Effect<Connection, ReauthorizationRequired | ProviderRequestFailed> =>
-    Effect.gen(function* () {
-      const response = yield* provider
-        .refresh(refreshToken)
-        .pipe(Effect.catchTag("ProviderRequestFailed", refreshFailed(connection)))
-      const now = yield* DateTime.now
-      const refreshed = connectionFrom(
-        Option.some(connection),
-        response,
-        connection.connectedAccount,
-        now,
-      )
-      return yield* install(refreshed, now)
-    })
+  }: Refreshable) {
+    const response = yield* provider
+      .refresh(refreshToken)
+      .pipe(Effect.catchTag("ProviderRequestFailed", refreshFailed(connection)))
+    const now = yield* DateTime.now
+    const refreshed = connectionFrom(
+      Option.some(connection),
+      response,
+      connection.connectedAccount,
+      now,
+    )
+    return yield* install(refreshed, now)
+  })
 
   /** Records the failure on the Connection and schedules the retry the policy calls for. */
-  const scheduleRetry = (connection: Connection, failure: ProviderRequestFailed) =>
-    Effect.gen(function* () {
-      const now = yield* DateTime.now
-      const { delay, retryCount } = retryAfter(connection.refreshRetryCount, failure)
-      yield* scheduleAt(
-        {
-          ...connection,
-          refreshRetryCount: retryCount,
-          lastRefreshError: refreshErrorOf(failure, now),
-        },
-        DateTime.addDuration(now, delay),
-      )
-    })
+  const scheduleRetry = Effect.fnUntraced(function* (
+    connection: Connection,
+    failure: ProviderRequestFailed,
+  ) {
+    const now = yield* DateTime.now
+    const { delay, retryCount } = retryAfter(connection.refreshRetryCount, failure)
+    yield* scheduleAt(
+      {
+        ...connection,
+        refreshRetryCount: retryCount,
+        lastRefreshError: refreshErrorOf(failure, now),
+      },
+      DateTime.addDuration(now, delay),
+    )
+  })
 
   const resumeSchedule: Effect.Effect<void> = lock.withPermit(
     Effect.gen(function* () {
@@ -323,7 +322,11 @@ const make = Effect.gen(function* () {
     }),
   )
 
-  /** The stored token while it is fresh, otherwise whatever `onDue` makes of the Connection. */
+  /**
+   * The stored token while it is fresh, otherwise whatever `onDue` makes of
+   * the Connection. An arrow rather than `Effect.fn`, which cannot carry the
+   * type parameter.
+   */
   const tokenUnlessDue = <E>(
     onDue: (refreshable: Refreshable) => Effect.Effect<Redacted.Redacted<string>, E>,
   ): Effect.Effect<

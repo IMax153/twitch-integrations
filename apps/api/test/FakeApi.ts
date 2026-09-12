@@ -18,10 +18,16 @@ export interface ReceivedRequest {
   readonly json: unknown
 }
 
-/** A JSON answer, or none when the fake plays a host that cannot be reached. */
-export type FakeResponse = { readonly status: number; readonly body: unknown } | "unreachable"
+/** A JSON answer, an empty answer, or none when the fake plays a host that cannot be reached. */
+export type FakeResponse =
+  | { readonly status: number; readonly body: unknown }
+  | { readonly status: number; readonly body?: undefined }
+  | "unreachable"
 
 export const respond = (status: number, body: unknown): FakeResponse => ({ status, body })
+
+/** An answer with no body, as Helix gives for a deletion. */
+export const respondEmpty = (status: number): FakeResponse => ({ status })
 
 /** What every fake API's scenario can say about timing. */
 export interface WithLatency {
@@ -95,6 +101,7 @@ export const makeFakeApi = <Scenario extends WithLatency>(
   definition: FakeApiDefinition<Scenario>,
   log: RequestLog,
 ): Effect.Effect<FakeApi<Scenario>> =>
+  // An arrow rather than `Effect.fn`, which cannot carry the type parameter.
   Effect.gen(function* () {
     const scenario = yield* Ref.make<Scenario | undefined>(undefined)
     const service: FakeApiService<Scenario> = {
@@ -103,18 +110,16 @@ export const makeFakeApi = <Scenario extends WithLatency>(
         entries.filter((entry) => entry.hostname === definition.hostname),
       ),
     }
-    const answer = (received: ReceivedRequest) =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(scenario)
-        if (current?.latency !== undefined) {
-          yield* Effect.sleep(current.latency)
-        }
-        const endpoint =
-          definition.endpoints[`${received.method} ${new URL(received.url).pathname}`]
-        return endpoint === undefined
-          ? respond(404, { error: "not found" })
-          : endpoint(current, received)
-      })
+    const answer = Effect.fnUntraced(function* (received: ReceivedRequest) {
+      const current = yield* Ref.get(scenario)
+      if (current?.latency !== undefined) {
+        yield* Effect.sleep(current.latency)
+      }
+      const endpoint = definition.endpoints[`${received.method} ${new URL(received.url).pathname}`]
+      return endpoint === undefined
+        ? respond(404, { error: "not found" })
+        : endpoint(current, received)
+    })
     return { hostname: definition.hostname, service, answer }
   })
 
@@ -146,7 +151,9 @@ export const routeByHostname = (
       }
       return HttpClientResponse.fromWeb(
         request,
-        Response.json(answer.body, { status: answer.status }),
+        answer.body === undefined
+          ? new Response(null, { status: answer.status })
+          : Response.json(answer.body, { status: answer.status }),
       )
     }),
   )

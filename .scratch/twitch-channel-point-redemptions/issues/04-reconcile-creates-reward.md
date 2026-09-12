@@ -4,15 +4,19 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Domain schemas for Reward, ChannelState, and EventSubscription exist in the domain package with identifier annotations
-- [ ] The Channel object hosts its own store over Durable Object SQLite, in the pattern of the Connection object
-- [ ] Reconcile creates the Reward when none is stored and none is manageable with the title, and updates it in place otherwise; it never deletes a reward
-- [ ] Reconcile replaces this client ID's Event Subscriptions with the redemption add subscription filtered to the Reward's ID, stream online, and stream offline, using the webhook secret as the transport secret and the receiver's callback URL
-- [ ] Reconcile seeds Live from Get Streams and pauses or unpauses the Reward to match
-- [ ] The app access token is fetched with the Twitch Credentials, cached until expiry, never stored, and never returned
-- [ ] A successful Twitch authorization triggers reconcile; a Spotify authorization does not
-- [ ] An object that starts with stored Reward settings different from the spec's constants reconciles itself
-- [ ] Under `alchemy dev` reconcile skips Event Subscription creation and says so in a log line
-- [ ] Tests cover create versus update, Event Subscription replacement, Live seeding, and both triggers, over the fake Helix API from ticket 02 and in-process objects
+- [x] Domain schemas for Reward, ChannelState, and EventSubscription exist in the domain package with identifier annotations
+- [x] The Channel object hosts its own store over Durable Object SQLite, in the pattern of the Connection object
+- [x] Reconcile creates the Reward when none is stored and none is manageable with the title, and updates it in place otherwise; it never deletes a reward
+- [x] Reconcile replaces this client ID's Event Subscriptions with the redemption add subscription filtered to the Reward's ID, stream online, and stream offline, using the webhook secret as the transport secret and the receiver's callback URL
+- [x] Reconcile seeds Live from Get Streams and pauses or unpauses the Reward to match
+- [x] The app access token is fetched with the Twitch Credentials, cached until expiry, never stored, and never returned
+- [x] A successful Twitch authorization triggers reconcile; a Spotify authorization does not
+- [x] An object that starts with stored Reward settings different from the spec's constants reconciles itself
+- [x] Under `alchemy dev` reconcile skips Event Subscription creation and says so in a log line
+- [x] Tests cover create versus update, Event Subscription replacement, Live seeding, and both triggers, over the fake Helix API from ticket 02 and in-process objects
+
+## Comments
+
+Implemented on 2026-09-12. `packages/domain` gains `Reward` (with `RewardSettings` and the `songRequestSettings` constants), `ChannelState`, and `EventSubscription`, each with an identifier annotation. In `apps/api`, `ChannelObject.ts` is the one Durable Object, addressed by the fixed name `channel`, hosting `ChannelStore.ts` over its SQLite storage (a single-row Reward document, a single-row state, and one row per Event Subscription). `ChannelReconcile.ts` runs the steps in the spec's order under a one-permit semaphore: the Reward is created when none is stored and none with the title is manageable, otherwise updated in place with every spec setting, and it is never deleted; this client ID's Event Subscriptions are listed, deleted, and the three created afresh with the webhook secret as the transport secret and the receiver's callback URL from `apps/infra/src/Domain.ts`; Live is seeded from Get Streams; and the Reward is paused or unpaused to match. `Helix.ts` is the Helix client, `TwitchAppToken.ts` the client-credentials token cached in memory until a minute before expiry and never stored or returned, and `Provider.ts` gained the `client-credentials` grant. Every other Helix call uses the Twitch Connection's token through `Connections.getAccessToken`, which the object reaches over the Connection namespace resolved in its init Effect. `Channel.ts` is the Worker-side service; the OAuth callback runs it after a `connected` Twitch result only, and a failure there is logged without changing the redirect. An object that starts with a stored Reward whose title, cost, or prompt differ from the constants reconciles itself. `EventSubTransport.ts` reads `ALCHEMY_DEV` from the bound environment, which the API Worker's init binds by reading it, so under `alchemy dev` the subscription step is skipped with a log line and nothing else changes; the same read binds `TWITCH_EVENTSUB_SECRET` onto the API Worker, and `WebhookSecret` moved to `apps/infra` so both Workers share it. The fake Helix API in `apps/api/test/FakeProviders.ts` serves the reward, EventSub, and streams endpoints and the fake Twitch token host answers the client-credentials grant. `ChannelObject.test.ts` covers create versus adopt versus update, the never-delete rule, Event Subscription replacement and the dev skip, app token reuse, Live and Offline seeding, the Not Configured failure, and self-reconcile on construction; `BroadcasterRoutes.test.ts` covers the Twitch trigger, the absence of a Spotify trigger, and a failed reconcile still reporting connected. Twitch is never reached. `describe` and `receive` are left to tickets 05 onward.

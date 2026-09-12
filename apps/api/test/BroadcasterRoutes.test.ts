@@ -306,6 +306,56 @@ describe("broadcaster routes", () => {
         }),
     )
 
+    it.effect("reconciles the Channel after a successful Twitch authorization", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, channelStore } = yield* world
+        yield* providers.set("twitch", grantedScenario)
+        const { state } = yield* startAttempt("twitch")
+        const response = yield* callback("twitch", { code: "code-1", state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=connected",
+        )
+        const helix = yield* providers.twitchHelix.received
+        assert.strictEqual(
+          helix[0]?.url,
+          "https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=account-1&only_manageable_rewards=true",
+        )
+        assert.strictEqual(helix[0]?.headers["authorization"], "Bearer granted-access-token")
+        assert.deepStrictEqual(
+          Option.map(yield* channelStore.readReward, (reward) => reward.title),
+          Option.some("Song Request"),
+        )
+      }),
+    )
+
+    it.effect("does not reconcile the Channel after a Spotify authorization", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, channelStore } = yield* world
+        yield* providers.set("spotify", grantedScenario)
+        const { state } = yield* startAttempt("spotify")
+        yield* callback("spotify", { code: "code-1", state })
+        assert.deepStrictEqual(yield* providers.twitchHelix.received, [])
+        assert.deepStrictEqual(yield* channelStore.readReward, Option.none())
+      }),
+    )
+
+    it.effect("still reports connected when the reconcile after authorization fails", () =>
+      Effect.gen(function* () {
+        const { providers, startAttempt, callback, channelStore } = yield* world
+        yield* providers.set("twitch", grantedScenario)
+        // Helix refuses the granted token, so the reconcile fails at its first call.
+        yield* providers.twitchHelix.set({ accessToken: Option.none() })
+        const { state } = yield* startAttempt("twitch")
+        const response = yield* callback("twitch", { code: "code-1", state })
+        assert.strictEqual(
+          response.headers.get("location"),
+          "https://worker.example/setup?result=connected",
+        )
+        assert.deepStrictEqual(yield* channelStore.readReward, Option.none())
+      }),
+    )
+
     it.effect("exchanges the code with Spotify using HTTP Basic client authentication", () =>
       Effect.gen(function* () {
         const { providers, startAttempt, callback } = yield* world
@@ -426,7 +476,11 @@ describe("broadcaster routes", () => {
           replay.headers.get("location"),
           "https://worker.example/setup?result=attempt-mismatch",
         )
-        assert.lengthOf(yield* providers.received, 2)
+        // The code was presented once: the replay never reached the token endpoint.
+        const exchanges = (yield* providers.twitchAuth.received).filter(
+          (request) => request.form["grant_type"] === "authorization_code",
+        )
+        assert.lengthOf(exchanges, 1)
       }),
     )
 

@@ -49,7 +49,7 @@ export interface TokenResponse {
   readonly scopes: Option.Option<ReadonlyArray<string>>
 }
 
-export type ProviderOperation = "exchange" | "refresh" | "identity"
+export type ProviderOperation = "exchange" | "refresh" | "identity" | "client-credentials"
 
 /** Why a request to the Provider did not produce what it should have. */
 export type ProviderFailureReason =
@@ -104,7 +104,8 @@ export const describeFailure = (failure: ProviderRequestFailed): string => {
   }
 }
 
-const failureReason = (
+/** What a failed HTTP call to a Provider amounts to, with the request and response left behind. */
+export const failureReason = (
   cause: HttpClientError.HttpClientError | Schema.SchemaError,
 ): ProviderFailureReason => {
   if (cause._tag === "SchemaError") {
@@ -132,6 +133,12 @@ export interface ProviderService extends ProviderDescription {
   readonly refresh: (
     refreshToken: Redacted.Redacted<string>,
   ) => Effect.Effect<TokenResponse, ProviderRequestFailed>
+  /**
+   * Submits the client credentials grant for an app access token: a token
+   * for the application itself rather than for the Connected Account. Twitch
+   * requires one to manage Event Subscriptions.
+   */
+  readonly requestClientCredentials: Effect.Effect<TokenResponse, ProviderRequestFailed>
   /** Asks the Provider which account the access token belongs to. */
   readonly fetchConnectedAccount: (
     accessToken: Redacted.Redacted<string>,
@@ -217,71 +224,78 @@ const tokenResponse = (wire: typeof TokenResponseWire.Type): TokenResponse => ({
 
 const readTokenResponse = HttpClientResponse.schemaBodyJson(TokenResponseWire)
 
-const make = (
-  name: ProviderName,
-): Effect.Effect<ProviderService, never, ProviderCredentials | HttpClient.HttpClient> =>
-  Effect.gen(function* () {
-    const description = descriptions[name]
-    const credentials = (yield* ProviderCredentials)[name]
-    // Any status outside 2xx is a failed request; the error keeps the response.
-    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+const make = Effect.fnUntraced(function* (name: ProviderName) {
+  const description = descriptions[name]
+  const credentials = (yield* ProviderCredentials)[name]
+  // Any status outside 2xx is a failed request; the error keeps the response.
+  const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
 
-    const failed =
-      (operation: ProviderOperation) =>
-      (cause: HttpClientError.HttpClientError | Schema.SchemaError): ProviderRequestFailed =>
-        new ProviderRequestFailed({ provider: name, operation, reason: failureReason(cause) })
+  const failed =
+    (operation: ProviderOperation) =>
+    (cause: HttpClientError.HttpClientError | Schema.SchemaError): ProviderRequestFailed =>
+      new ProviderRequestFailed({ provider: name, operation, reason: failureReason(cause) })
 
-    /** Applies the Provider's client authentication style to a token request. */
-    const authenticate = (
-      request: HttpClientRequest.HttpClientRequest,
-      form: Record<string, string>,
-    ): HttpClientRequest.HttpClientRequest =>
-      description.clientAuthentication === "basic"
-        ? request.pipe(
-            HttpClientRequest.basicAuth(credentials.clientId, credentials.clientSecret),
-            HttpClientRequest.bodyUrlParams(form),
-          )
-        : HttpClientRequest.bodyUrlParams(request, {
-            ...form,
-            client_id: Redacted.value(credentials.clientId),
-            client_secret: Redacted.value(credentials.clientSecret),
-          })
+  /** Applies the Provider's client authentication style to a token request. */
+  const authenticate = (
+    request: HttpClientRequest.HttpClientRequest,
+    form: Record<string, string>,
+  ): HttpClientRequest.HttpClientRequest =>
+    description.clientAuthentication === "basic"
+      ? request.pipe(
+          HttpClientRequest.basicAuth(credentials.clientId, credentials.clientSecret),
+          HttpClientRequest.bodyUrlParams(form),
+        )
+      : HttpClientRequest.bodyUrlParams(request, {
+          ...form,
+          client_id: Redacted.value(credentials.clientId),
+          client_secret: Redacted.value(credentials.clientSecret),
+        })
 
-    /** Submits one grant to the token endpoint and reads the token response. */
-    const requestTokens = (operation: ProviderOperation, form: Record<string, string>) =>
-      Effect.gen(function* () {
-        const request = authenticate(HttpClientRequest.post(description.tokenEndpoint), form)
-        const response = yield* client.execute(request)
-        return tokenResponse(yield* readTokenResponse(response))
-      }).pipe(Effect.mapError(failed(operation)))
-
-    return {
-      ...description,
-      credentials,
-      exchangeCode: (code, callbackUri) =>
-        requestTokens("exchange", {
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: callbackUri,
-        }),
-      refresh: (refreshToken) =>
-        requestTokens("refresh", {
-          grant_type: "refresh_token",
-          refresh_token: Redacted.value(refreshToken),
-        }),
-      fetchConnectedAccount: (accessToken) =>
-        Effect.gen(function* () {
-          const request = HttpClientRequest.get(description.identityEndpoint).pipe(
-            HttpClientRequest.setHeader(
-              "authorization",
-              `${description.identityScheme} ${Redacted.value(accessToken)}`,
-            ),
-          )
-          const response = yield* client.execute(request)
-          return yield* description.decodeConnectedAccount(yield* response.json)
-        }).pipe(Effect.mapError(failed("identity"))),
-    }
+  /** Submits one grant to the token endpoint and reads the token response. */
+  const requestTokens = Effect.fn("Provider.requestTokens")(function* (
+    operation: ProviderOperation,
+    form: Record<string, string>,
+  ) {
+    const request = authenticate(HttpClientRequest.post(description.tokenEndpoint), form)
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.flatMap(readTokenResponse), Effect.mapError(failed(operation)))
+    return tokenResponse(response)
   })
+
+  const service: ProviderService = {
+    ...description,
+    credentials,
+    exchangeCode: (code, callbackUri) =>
+      requestTokens("exchange", {
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: callbackUri,
+      }),
+    refresh: (refreshToken) =>
+      requestTokens("refresh", {
+        grant_type: "refresh_token",
+        refresh_token: Redacted.value(refreshToken),
+      }),
+    requestClientCredentials: requestTokens("client-credentials", {
+      grant_type: "client_credentials",
+    }),
+    fetchConnectedAccount: Effect.fn("Provider.fetchConnectedAccount")(
+      function* (accessToken: Redacted.Redacted<string>) {
+        const request = HttpClientRequest.get(description.identityEndpoint).pipe(
+          HttpClientRequest.setHeader(
+            "authorization",
+            `${description.identityScheme} ${Redacted.value(accessToken)}`,
+          ),
+        )
+        const response = yield* client.execute(request)
+        return yield* description.decodeConnectedAccount(yield* response.json)
+      },
+      Effect.mapError(failed("identity")),
+    ),
+  }
+  return service
+})
 
 /**
  * The one Provider a Connection object talks to. Each object hosts one

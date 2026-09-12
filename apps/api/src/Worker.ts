@@ -6,8 +6,12 @@ import {
   zoneName,
 } from "@twitch-integrations/infra/Domain"
 import { observed } from "@twitch-integrations/infra/Failure"
+import { WebhookSecret } from "@twitch-integrations/infra/WebhookSecret"
+import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import { Channel } from "./Channel.ts"
 import { Connections } from "./Connections.ts"
 import { BroadcasterHttp } from "./BroadcasterRoutes.ts"
 import { ProviderCredentials } from "./ProviderCredentials.ts"
@@ -43,7 +47,17 @@ export default class ApiWorker extends Cloudflare.Worker<ApiWorker>()(
     // runtime it resolves from that binding. The Connection object reads the
     // same names from the bound environment when it starts.
     yield* observed(ProviderCredentials.config)
-    const fetch = yield* BroadcasterHttp.pipe(Effect.provide(Connections.layer))
+    // The Channel object reads both from the same bound environment: the
+    // webhook secret as the Event Subscriptions' transport secret, and
+    // `ALCHEMY_DEV`, which is only ever set under `alchemy dev` and is bound
+    // by this read so the object can tell it must not touch Event
+    // Subscriptions. Under a deploy it is unset, so nothing is bound and the
+    // object reads its default.
+    yield* observed(WebhookSecret.config)
+    yield* observed(ALCHEMY_DEV)
+    const fetch = yield* BroadcasterHttp.pipe(
+      Effect.provide(Layer.merge(Connections.layer, Channel.layer)),
+    )
     return { fetch: observed(fetch) }
   }),
 ) {}
