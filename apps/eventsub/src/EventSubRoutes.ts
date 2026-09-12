@@ -102,8 +102,9 @@ const deliver = (channel: Channel["Service"]) =>
 
 /** The Worker's HTTP handler, built once over the configured secret and the Channel. */
 export const EventSubHttp = Effect.all([Effect.flatMap(WebhookSecret, makeVerifier), Channel]).pipe(
-  Effect.map(([verify, channel]) =>
-    Effect.gen(function* () {
+  Effect.map(([verify, channel]) => {
+    const deliverTo = deliver(channel)
+    return Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
       if (
         request.method !== "POST" ||
@@ -144,12 +145,12 @@ export const EventSubHttp = Effect.all([Effect.flatMap(WebhookSecret, makeVerifi
         case "webhook_callback_verification":
           return answerChallenge(body.value)
         case "notification":
-          return yield* deliver(channel)(parseNotification(messageId, body.value))
+          return yield* deliverTo(parseNotification(messageId, body.value))
         case "revocation":
-          return yield* deliver(channel)(parseRevocation(messageId, body.value))
+          return yield* deliverTo(parseRevocation(messageId, body.value))
         default:
           return accepted
       }
-    }),
-  ),
+    })
+  }),
 )

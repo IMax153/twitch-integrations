@@ -22,8 +22,8 @@ export interface ChannelReceiveService {
   readonly receive: (notification: Notification) => Effect.Effect<void>
 }
 
-/** How long a processed message ID is remembered, so a resend inside the window is not processed again. */
-export const messageMemory = Duration.hours(24)
+/** How long a processed Notification's message ID is remembered, so a resend inside the window is not processed again. */
+export const notificationMemory = Duration.hours(24)
 
 const make = Effect.gen(function* () {
   const store = yield* ChannelStore
@@ -45,7 +45,7 @@ const make = Effect.gen(function* () {
       return
     }
     yield* Effect.flatMap(access.current, (grant) =>
-      pause.toMatch(grant, reward.value, state),
+      pause.applyState(grant, reward.value, state),
     ).pipe(observed, Effect.ignore)
   })
 
@@ -93,13 +93,13 @@ const make = Effect.gen(function* () {
   const receive: ChannelReceiveService["receive"] = Effect.fn("ChannelReceive.receive")(
     function* (notification) {
       const now = yield* DateTime.now
-      yield* store.forgetMessagesBefore(DateTime.subtractDuration(now, messageMemory))
-      if (yield* store.hasSeenMessage(notification.messageId)) {
-        yield* Effect.logInfo(`Message ${notification.messageId} was already processed`)
+      yield* store.forgetNotificationsBefore(DateTime.subtractDuration(now, notificationMemory))
+      if (yield* store.hasSeenNotification(notification.messageId)) {
+        yield* Effect.logInfo(`Notification ${notification.messageId} was already processed`)
         return
       }
       if (yield* act(notification)) {
-        yield* store.recordMessage(notification.messageId, now)
+        yield* store.recordNotification(notification.messageId, now)
       }
     },
     (self) => lock.withPermit(self),

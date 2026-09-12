@@ -20,7 +20,12 @@ import {
 } from "./BroadcasterHarness.ts"
 import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
-import { songRequestReward, storedSubscriptions, twitchConnection } from "./fixtures.ts"
+import {
+  manageableSongRequest,
+  songRequestReward,
+  storedSubscriptions,
+  twitchConnection,
+} from "./fixtures.ts"
 
 const at = (iso: string) => DateTime.makeUnsafe(iso).pipe(DateTime.toEpochMillis, TestClock.setTime)
 
@@ -54,15 +59,6 @@ const rewardsUrl = "https://api.twitch.tv/helix/channel_points/custom_rewards"
 const subscriptionsUrl = "https://api.twitch.tv/helix/eventsub/subscriptions"
 
 const streamsUrl = "https://api.twitch.tv/helix/streams"
-
-/** The Song Request Reward as Helix holds it, already manageable by this client ID. */
-const manageableSongRequest = {
-  id: "reward-1",
-  title: "Song Request",
-  cost: 1,
-  prompt: songRequestSettings.prompt,
-  is_paused: false,
-}
 
 /** The settings as Helix receives them: the three the spec varies, and the fixed ones. */
 const settingsBody = {
@@ -397,7 +393,7 @@ describe("ChannelObject construction", () => {
   )
 })
 
-/** A Notification as the receiver hands it over the RPC: encoded, with a fresh message ID unless the test picks one. */
+/** A Notification as the receiver hands it over the RPC: encoded, under the message ID the test picks. */
 const notification = (
   messageId: string,
   event: NotificationEvent,
@@ -408,7 +404,7 @@ const online: NotificationEvent = { _tag: "StreamOnline" }
 
 const offline: NotificationEvent = { _tag: "StreamOffline" }
 
-/** A Redemption of some reward, the Reward's unless the test says otherwise. */
+/** A Redemption of the reward with the ID, which may or may not be the Reward's. */
 const redemptionAdded = (rewardId: string): NotificationEvent => ({
   _tag: "RedemptionAdded",
   redemption: {

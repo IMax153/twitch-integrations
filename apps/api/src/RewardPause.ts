@@ -13,8 +13,8 @@ export interface RewardPauseService {
    * while Offline and unpaused while Live, and stores the state Twitch
    * reports back.
    */
-  readonly toMatch: (
-    access: TwitchAccessGrant,
+  readonly applyState: (
+    grant: TwitchAccessGrant,
     reward: Reward,
     state: ChannelState,
   ) => Effect.Effect<Reward, HelixRequestFailed>
@@ -23,9 +23,9 @@ export interface RewardPauseService {
 const make = Effect.gen(function* () {
   const store = yield* ChannelStore
   const helix = yield* Helix
-  const toMatch: RewardPauseService["toMatch"] = Effect.fn("RewardPause.toMatch")(
-    function* (access, reward, state) {
-      const updated = yield* helix.updateReward(access.token, access.account, reward.id, {
+  const applyState: RewardPauseService["applyState"] = Effect.fn("RewardPause.applyState")(
+    function* (grant, reward, state) {
+      const updated = yield* helix.updateReward(grant.token, grant.account, reward.id, {
         isPaused: state === "Offline",
       })
       const stored: Reward = { ...reward, isPaused: updated.isPaused }
@@ -33,7 +33,7 @@ const make = Effect.gen(function* () {
       return stored
     },
   )
-  return RewardPause.of({ toMatch })
+  return RewardPause.of({ applyState })
 })
 
 /** The one rule both reconcile and a stream notification apply: the Reward is paused exactly while Offline. */

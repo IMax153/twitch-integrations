@@ -1,7 +1,8 @@
 import * as Context from "effect/Context"
-import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Semaphore from "effect/Semaphore"
+
+const make = Semaphore.make(1)
 
 /**
  * The Channel's one lock. A reconcile, a received notification, and later a
@@ -12,7 +13,5 @@ import * as Semaphore from "effect/Semaphore"
 export class ChannelLock extends Context.Service<ChannelLock, Semaphore.Semaphore>()(
   "@twitch-integrations/api/ChannelLock",
 ) {
-  static readonly layer: Layer.Layer<ChannelLock> = Layer.effect(ChannelLock)(
-    Effect.map(Semaphore.make(1), (lock) => lock),
-  )
+  static readonly layer: Layer.Layer<ChannelLock> = Layer.effect(ChannelLock)(make)
 }

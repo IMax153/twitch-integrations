@@ -23,14 +23,14 @@ export interface ChannelStoreService {
   readonly replaceEventSubscriptions: (
     subscriptions: ReadonlyArray<EventSubscription>,
   ) => Effect.Effect<void>
-  /** Replaces the stored Event Subscription with the same ID, if there is one, and says whether there was. */
-  readonly updateEventSubscription: (subscription: EventSubscription) => Effect.Effect<boolean>
-  /** Whether a notification with this message ID has been processed and not yet forgotten. */
-  readonly hasSeenMessage: (messageId: string) => Effect.Effect<boolean>
-  /** Remembers a processed notification's message ID from the time it was received. */
-  readonly recordMessage: (messageId: string, receivedAt: DateTime.Utc) => Effect.Effect<void>
-  /** Forgets every message ID received before the cutoff. */
-  readonly forgetMessagesBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
+  /** Replaces the stored Event Subscription with the same ID; one not stored is left unstored. */
+  readonly updateEventSubscription: (subscription: EventSubscription) => Effect.Effect<void>
+  /** Whether a Notification with this message ID has been processed and not yet forgotten. */
+  readonly hasSeenNotification: (messageId: string) => Effect.Effect<boolean>
+  /** Remembers a processed Notification's message ID from the time it was received. */
+  readonly recordNotification: (messageId: string, receivedAt: DateTime.Utc) => Effect.Effect<void>
+  /** Forgets every Notification received before the cutoff. */
+  readonly forgetNotificationsBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
 }
 
 /**
@@ -149,28 +149,26 @@ const make = Effect.gen(function* () {
       subscription: EventSubscription,
     ) {
       const document = yield* encodeEventSubscription(subscription)
-      const rows = yield* sql<CountRow>`
-          UPDATE event_subscription SET document = ${document}
-          WHERE subscription_id = ${subscription.id}
-          RETURNING 1 AS count
-        `
-      return rows.length > 0
+      yield* sql`
+        UPDATE event_subscription SET document = ${document}
+        WHERE subscription_id = ${subscription.id}
+      `
     }, Effect.orDie),
 
-    hasSeenMessage: (messageId) =>
+    hasSeenNotification: (messageId) =>
       sql<CountRow>`SELECT COUNT(*) AS count FROM seen_message WHERE message_id = ${messageId}`.pipe(
         Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
         Effect.orDie,
       ),
 
-    recordMessage: (messageId, receivedAt) =>
+    recordNotification: (messageId, receivedAt) =>
       sql`
         INSERT INTO seen_message (message_id, received_at)
         VALUES (${messageId}, ${DateTime.toEpochMillis(receivedAt)})
         ON CONFLICT (message_id) DO NOTHING
       `.pipe(Effect.asVoid, Effect.orDie),
 
-    forgetMessagesBefore: (cutoff) =>
+    forgetNotificationsBefore: (cutoff) =>
       sql`DELETE FROM seen_message WHERE received_at < ${DateTime.toEpochMillis(cutoff)}`.pipe(
         Effect.asVoid,
         Effect.orDie,

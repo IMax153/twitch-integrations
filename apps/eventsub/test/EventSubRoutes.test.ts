@@ -7,6 +7,7 @@ import * as Option from "effect/Option"
 import * as TestClock from "effect/testing/TestClock"
 import { testTransport } from "../../api/test/BroadcasterHarness.ts"
 import {
+  manageableSongRequest,
   songRequestReward,
   storedSubscriptions,
   twitchConnection,
@@ -184,15 +185,7 @@ const worldWithReward = Effect.fnUntraced(function* (isPaused: boolean) {
   yield* world.stores.twitch.writeConnection(twitchConnection)
   yield* world.providers.twitchHelix.set({
     accessToken: Option.some("access-token-1"),
-    manageableRewards: [
-      {
-        id: "reward-1",
-        title: "Song Request",
-        cost: 1,
-        prompt: songRequestSettings.prompt,
-        is_paused: isPaused,
-      },
-    ],
+    manageableRewards: [{ ...manageableSongRequest, is_paused: isPaused }],
   })
   yield* world.channelStore.writeReward({ ...songRequestReward, isPaused })
   yield* world.channelStore.replaceEventSubscriptions(storedSubscriptions)

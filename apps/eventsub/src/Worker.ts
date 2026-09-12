@@ -19,7 +19,9 @@ const devPort = 1338
 /**
  * The Channel object's namespace as the API Worker hosts it, bound across
  * scripts: the receiver holds the namespace and nothing of the object's
- * implementation, so its only binding is the one it delivers to.
+ * implementation, so its only binding is the one it delivers to. It lives
+ * here rather than as a static on `Channel` because naming the API Worker
+ * from that module would import the Worker that imports it.
  */
 const channelLayer = Layer.effect(Channel)(
   Effect.map(ChannelObject.from(ApiWorker), (objects) =>

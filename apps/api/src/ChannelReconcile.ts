@@ -152,7 +152,7 @@ const make = Effect.gen(function* () {
       const reward = yield* ensureReward(grant)
       yield* replaceEventSubscriptions(grant.account, reward.id)
       const state = yield* seedState(grant)
-      yield* pause.toMatch(grant, reward, state)
+      yield* pause.applyState(grant, reward, state)
     }),
   )
 
