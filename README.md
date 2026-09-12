@@ -78,11 +78,23 @@ The CLI reports a valid challenge, `text/plain`, and status 200. A notification 
 vp run deploy
 ```
 
-This runs `alchemy deploy --stage production`. The stack has only ever been deployed under the `production` stage, and it refuses any other stage name except the `dev_` stages `alchemy dev` uses, so a mistyped stage fails before touching Cloudflare. After a deploy:
+This runs `alchemy deploy --stage production`. The stack has only ever been deployed under the `production` stage, and it refuses any other stage name except the `dev_` stages `alchemy dev` uses and the placeholder stage Alchemy's `state` command runs under, so a mistyped stage fails before touching Cloudflare.
+
+The rate-limiting rule on the receiver's route is a zone ruleset, which needs the `zone-waf.write` scope on the Alchemy Cloudflare profile. `pnpm exec alchemy profile edit` adds it. Without it the deploy fails at the ruleset with an authentication error, which `alchemy plan` cannot predict because it never calls the API for a resource with no prior state. After a deploy:
 
 1. Open `https://stream.minbadblue.com/setup` in a private window and confirm Cloudflare Access asks you to sign in with GitHub.
 2. Sign in as the Broadcaster, press Connect for each Provider, and complete consent.
 3. Confirm both Connections show Authorized with the expected Connected Account and a next refresh time.
+4. Confirm the receiver is public: an anonymous `GET https://stream.minbadblue.com/eventsub/twitch` answers an empty 404 with no Access redirect, and an unsigned `POST` answers 403.
+5. Reconnecting Twitch runs the Channel's reconcile, which creates or updates the Song Request Reward and recreates the three Event Subscriptions. Read the outcome in the logs, then list the subscriptions with the Twitch CLI and expect three `enabled` entries whose callback is the receiver:
+
+   ```sh
+   pnpm exec alchemy logs -r Worker,EventSub --since 10m --stage production
+   twitch configure -i "$TWITCH_CLIENT_ID" -s "$TWITCH_CLIENT_SECRET" && twitch token
+   twitch api get eventsub/subscriptions
+   ```
+
+   A reward named Song Request that was made in the Twitch dashboard is not manageable by the application, so the create answers a duplicate-reward error; delete that reward in the dashboard and reconnect. The Reward's settings can be read in the dashboard or with `twitch api get channel_points/custom_rewards -q broadcaster_id=<id>` under a user token with `channel:read:redemptions`, which `twitch token -u -s channel:read:redemptions` obtains through the browser.
 
 The deployed shape is described in [ADR 0002](docs/adr/0002-two-workers-on-one-custom-domain.md).
 
