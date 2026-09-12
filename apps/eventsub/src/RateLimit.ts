@@ -6,7 +6,9 @@ import * as Effect from "effect/Effect"
 
 /**
  * Requests one source IP may send to the receiver's route in one counting
- * period before Cloudflare blocks that IP for the mitigation timeout.
+ * period before Cloudflare blocks that IP for the mitigation timeout. The
+ * counter is kept per colocation, so a flood spread across Cloudflare's
+ * data centres is counted at each one separately.
  *
  * Twitch delivers one webhook message per Redemption, retry, revocation, or
  * verification, from more than one IP, and a single channel's Redemptions
@@ -23,6 +25,13 @@ const requestsPerPeriod = 100
  * IP only, matches on the request path only, and allows one rule.
  */
 const freePlanSeconds = 10
+
+/**
+ * What the counter is keyed by. Cloudflare rejects a rule keyed by source
+ * IP alone: rate limiting is counted per colocation, so `cf.colo.id` must
+ * be named alongside every other characteristic.
+ */
+const characteristics = ["cf.colo.id", "ip.src"]
 
 /**
  * The zone rate-limiting rule on the receiver's route: the one guard the
@@ -52,7 +61,7 @@ export const EventSubRateLimit = Effect.gen(function* () {
         expression: `starts_with(http.request.uri.path, "${eventSubRoutePrefix}")`,
         action: "block",
         ratelimit: {
-          characteristics: ["ip.src"],
+          characteristics,
           period: freePlanSeconds,
           requestsPerPeriod,
           mitigationTimeout: freePlanSeconds,
