@@ -9,5 +9,8 @@
   "dependencies": {
     "alchemy": "catalog:",
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:"
   }
 }
