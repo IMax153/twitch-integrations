@@ -4,7 +4,7 @@
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] `ChatCommand`, `ChatCommandName`, `ChatCommandResponse`, `ChatCommandDraft`, and `ChatCommandStatus` schemas exist in the domain package with identifier annotations
 - [ ] A name outside `^[A-Za-z0-9_]{1,32}$` and a response that is empty or over 500 characters are rejected by the schemas
