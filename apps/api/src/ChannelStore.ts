@@ -160,7 +160,7 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
     `
   yield* sql`
       CREATE TABLE IF NOT EXISTS chat_command (
-        key TEXT PRIMARY KEY,
+        name_key TEXT PRIMARY KEY,
         document TEXT NOT NULL
       )
     `
@@ -322,14 +322,14 @@ const make = Effect.gen(function* () {
       ),
 
     readChatCommands: Effect.gen(function* () {
-      const rows = yield* sql<DocumentRow>`SELECT document FROM chat_command ORDER BY key`
+      const rows = yield* sql<DocumentRow>`SELECT document FROM chat_command ORDER BY name_key`
       return yield* Effect.forEach(rows, (row) => decodeChatCommand(row.document))
     }).pipe(Effect.orDie),
 
     readChatCommand: (name) =>
       Effect.gen(function* () {
         const rows =
-          yield* sql<DocumentRow>`SELECT document FROM chat_command WHERE key = ${chatCommandKey(name)}`
+          yield* sql<DocumentRow>`SELECT document FROM chat_command WHERE name_key = ${chatCommandKey(name)}`
         const row = rows[0]
         return row === undefined
           ? Option.none()
@@ -339,13 +339,13 @@ const make = Effect.gen(function* () {
     writeChatCommand: Effect.fn("ChannelStore.writeChatCommand")(function* (command: ChatCommand) {
       const document = yield* encodeChatCommand(command)
       yield* sql`
-        INSERT INTO chat_command (key, document) VALUES (${chatCommandKey(command.name)}, ${document})
-        ON CONFLICT (key) DO UPDATE SET document = excluded.document
+        INSERT INTO chat_command (name_key, document) VALUES (${chatCommandKey(command.name)}, ${document})
+        ON CONFLICT (name_key) DO UPDATE SET document = excluded.document
       `
     }, Effect.orDie),
 
     deleteChatCommand: (name) =>
-      sql`DELETE FROM chat_command WHERE key = ${chatCommandKey(name)}`.pipe(
+      sql`DELETE FROM chat_command WHERE name_key = ${chatCommandKey(name)}`.pipe(
         Effect.asVoid,
         Effect.orDie,
       ),

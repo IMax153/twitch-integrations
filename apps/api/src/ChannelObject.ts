@@ -18,7 +18,7 @@ import {
 } from "@twitch-integrations/domain/ChatCommandErrors"
 import { Notification, type NotificationEncoded } from "@twitch-integrations/domain/Notification"
 import { hasSettings, songRequestSettings } from "@twitch-integrations/domain/Reward"
-import { observed } from "@twitch-integrations/infra/Failure"
+import { logFailure, observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -92,6 +92,13 @@ const encodeChatCommand = (command: ChatCommand) =>
 /** A body the page sent that the schema refused, as the rejection the page can show. */
 const invalidDraft = (issue: Schema.SchemaError) =>
   InvalidChatCommandDraft.make({ message: issue.message })
+/**
+ * A rejected Chat Command write is the Broadcaster's to see on the page, not
+ * an operational failure, so only a defect is logged.
+ */
+const defectsObserved = <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.tapDefect(self, logFailure)
+
 const decodeNewChatCommand = (input: unknown) =>
   Schema.decodeUnknownEffect(NewChatCommand)(input).pipe(Effect.mapError(invalidDraft))
 const decodeChatCommandDraft = (input: unknown) =>
@@ -131,15 +138,15 @@ export const makeChannelObject: Effect.Effect<
       decodeNewChatCommand(draft).pipe(
         Effect.flatMap(chatCommands.create),
         Effect.flatMap(encodeChatCommand),
-        observed,
+        defectsObserved,
       ),
     updateChatCommand: (name, draft) =>
       decodeChatCommandDraft(draft).pipe(
         Effect.flatMap((decoded) => chatCommands.update(name, decoded)),
         Effect.flatMap(encodeChatCommand),
-        observed,
+        defectsObserved,
       ),
-    deleteChatCommand: (name) => observed(chatCommands.remove(name)),
+    deleteChatCommand: (name) => defectsObserved(chatCommands.remove(name)),
   }
 })
 

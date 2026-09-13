@@ -17,9 +17,3 @@ export class InvalidChatCommandDraft extends Schema.TaggedError<InvalidChatComma
   "InvalidChatCommandDraft",
   { message: Schema.String },
 ) {}
-
-/** Why a Chat Command write was refused. */
-export type ChatCommandRejection =
-  | DuplicateChatCommand
-  | UnknownChatCommand
-  | InvalidChatCommandDraft

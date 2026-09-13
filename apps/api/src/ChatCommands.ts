@@ -32,6 +32,12 @@ const make = Effect.gen(function* () {
   const store = yield* ChannelStore
   const lock = yield* ChannelLock
 
+  /** The Chat Command with the name in any casing, or the rejection an edit or deletion of it gets. */
+  const requireChatCommand = (name: string) =>
+    Effect.flatMap(store.readChatCommand(name), (existing) =>
+      Option.isSome(existing) ? Effect.succeed(existing.value) : UnknownChatCommand.make({ name }),
+    )
+
   const create: ChatCommandsService["create"] = Effect.fn("ChatCommands.create")(
     function* (draft) {
       const existing = yield* store.readChatCommand(draft.name)
@@ -52,12 +58,9 @@ const make = Effect.gen(function* () {
 
   const update: ChatCommandsService["update"] = Effect.fn("ChatCommands.update")(
     function* (name, draft) {
-      const existing = yield* store.readChatCommand(name)
-      if (Option.isNone(existing)) {
-        return yield* UnknownChatCommand.make({ name })
-      }
+      const existing = yield* requireChatCommand(name)
       const command: ChatCommand = {
-        ...existing.value,
+        ...existing,
         ...draft,
         cooldownUntil: Option.none(),
       }
@@ -70,12 +73,9 @@ const make = Effect.gen(function* () {
 
   const remove: ChatCommandsService["remove"] = Effect.fn("ChatCommands.remove")(
     function* (name) {
-      const existing = yield* store.readChatCommand(name)
-      if (Option.isNone(existing)) {
-        return yield* UnknownChatCommand.make({ name })
-      }
+      const existing = yield* requireChatCommand(name)
       yield* store.deleteChatCommand(name)
-      yield* Effect.logInfo(`Deleted the ${existing.value.name} Chat Command`)
+      yield* Effect.logInfo(`Deleted the ${existing.name} Chat Command`)
     },
     (self) => lock.withPermit(self),
   )
