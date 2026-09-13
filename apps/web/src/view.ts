@@ -3,6 +3,7 @@ import * as Option from "effect/Option"
 import { AsyncData } from "foldkit"
 import type { Document, HtmlBuilder } from "foldkit/html"
 import { channelDetailsView, processingView, songRequestsView } from "./channelView.ts"
+import { chatCommandsView } from "./chatCommandView.ts"
 import { connectionsView } from "./connectionView.ts"
 import { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -51,7 +52,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
             [],
             [
               h.h1([], ["Broadcaster Page"]),
-              h.p([h.Class("muted")], ["Song Requests, processing, and Connections."]),
+              h.p([h.Class("muted")], ["Song Requests, Chat Commands, and Connections."]),
             ],
           ),
           // NOTE: this standalone native button is a single refresh action, with no composite-widget behavior.
@@ -72,6 +73,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
         [h.Class("overview")],
         [songRequestsView(model, h), processingView(model, h), connectionsView(model, h)],
       ),
+      chatCommandsView(model, h),
       channelDetailsView(model, h),
       h.footer(
         [h.Class("page-footer")],

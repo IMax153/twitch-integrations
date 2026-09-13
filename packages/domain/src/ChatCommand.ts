@@ -17,6 +17,10 @@ export const requiredChatScopes: ReadonlyArray<string> = [
   "channel:bot",
 ]
 
+/** The required chat scopes a Twitch Connection's granted scopes lack, in the order Twitch lists them. */
+export const missingChatScopes = (granted: ReadonlyArray<string>): ReadonlyArray<string> =>
+  requiredChatScopes.filter((scope) => !granted.includes(scope))
+
 /**
  * What a viewer types after the `!`: letters, digits, and underscores, one to
  * thirty-two of them, stored exactly as the Broadcaster typed it.

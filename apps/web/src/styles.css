@@ -364,3 +364,97 @@ code {
     padding: 1rem 0 0;
   }
 }
+
+.chat-commands {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+}
+.chat-commands h2 {
+  margin-bottom: 0.5rem;
+}
+.chat-commands > p {
+  max-width: 72ch;
+}
+.scope-notice {
+  margin-top: 0.75rem;
+}
+.chat-command-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+.chat-command {
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+.chat-command-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+}
+.chat-command-heading strong {
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+.status[data-state="Enabled"] {
+  color: var(--success);
+}
+.status[data-state="Disabled"] {
+  color: var(--muted);
+}
+.chat-command-response {
+  margin-top: 0.375rem;
+  max-width: 72ch;
+}
+.chat-command-answered {
+  font-size: 0.8125rem;
+  margin-top: 0.375rem;
+}
+.chat-command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.chat-command-delete p + p {
+  margin-top: 0.25rem;
+}
+.chat-commands form {
+  display: grid;
+  gap: 0.375rem;
+  max-width: 40rem;
+}
+.chat-commands form h3 {
+  margin-top: 0.5rem;
+}
+.chat-command-add {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.chat-commands label {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+.chat-commands input,
+.chat-commands textarea {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--text);
+  background: var(--page);
+}
+.chat-commands textarea {
+  resize: vertical;
+}
+.chat-commands form button {
+  justify-self: start;
+}
+.chat-commands [role="alert"] {
+  margin-top: 0.25rem;
+}
