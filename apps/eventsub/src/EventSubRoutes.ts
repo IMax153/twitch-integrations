@@ -17,11 +17,13 @@ const webhookPath = eventSubPath
 
 /**
  * The largest body the receiver reads. Twitch's example redemption
- * notification is 1.3 KB minified, and the fields that grow (viewer input,
- * a 45-character title, a 200-character prompt, display names) cannot
- * approach this.
+ * notification is 1.3 KB minified. A chat message notification repeats its
+ * 500 characters of text once per fragment, each with an emote, cheermote,
+ * or mention record beside it, so a line of emote spam runs to tens of
+ * kilobytes; a refusal would count as a failed delivery against the chat
+ * Event Subscription, so the bound sits well above that.
  */
-const maxBodyBytes = 16 * 1024
+const maxBodyBytes = 64 * 1024
 
 const notFound = HttpServerResponse.empty({ status: 404 })
 

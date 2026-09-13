@@ -22,11 +22,30 @@ export const Revocation = Schema.TaggedStruct("Revocation", {
 }).annotate({ identifier: "Revocation" })
 export type Revocation = typeof Revocation.Type
 
+/**
+ * One line of the channel's chat, as the Channel needs it to spot an
+ * Invocation and answer it in a thread. `broadcasterUserId` is the channel
+ * the Event Subscription watches, which the reconcile set to the Twitch
+ * Connected Account; `sourceBroadcasterUserId` is the channel the line was
+ * typed in when that is another channel in a shared chat session.
+ */
+export const ChatMessage = Schema.TaggedStruct("ChatMessage", {
+  messageId: Schema.String,
+  broadcasterUserId: Schema.String,
+  chatterUserId: Schema.String,
+  chatterLogin: Schema.String,
+  chatterDisplayName: Schema.String,
+  text: Schema.String,
+  sourceBroadcasterUserId: Schema.OptionFromNullOr(Schema.String),
+}).annotate({ identifier: "ChatMessage" })
+export type ChatMessage = typeof ChatMessage.Type
+
 export const NotificationEvent = Schema.Union([
   StreamOnline,
   StreamOffline,
   RedemptionAdded,
   Revocation,
+  ChatMessage,
 ]).annotate({ identifier: "NotificationEvent" })
 export type NotificationEvent = typeof NotificationEvent.Type
 

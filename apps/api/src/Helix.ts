@@ -80,6 +80,12 @@ export type AccessToken = Redacted.Redacted<string>
 /** The two ways a Redemption ends on Twitch; cancelling refunds the viewer's points. */
 export type RedemptionStatus = "FULFILLED" | "CANCELED"
 
+/** How a chat message is sent beyond its text. */
+export interface ChatSendOptions {
+  /** The ID of the chat message this one answers, which Twitch shows as a threaded reply. */
+  readonly replyTo?: string
+}
+
 /** What Twitch made of a chat message: whether it was shown, and why not when it was not. */
 export interface ChatSendResult {
   readonly isSent: boolean
@@ -130,11 +136,16 @@ export interface HelixService {
     redemptionId: string,
     status: RedemptionStatus,
   ) => Effect.Effect<void, HelixRequestFailed>
-  /** Sends a chat message to the broadcaster's chat as the broadcaster, who is the Twitch Connected Account. */
+  /**
+   * Sends a chat message to the broadcaster's chat as the broadcaster, who
+   * is the Twitch Connected Account; as a threaded reply to the named
+   * message when one is given.
+   */
   readonly sendChatMessage: (
     token: AccessToken,
     broadcasterId: string,
     message: string,
+    options?: ChatSendOptions,
   ) => Effect.Effect<ChatSendResult, HelixRequestFailed>
 }
 
@@ -406,12 +417,18 @@ const make = Effect.gen(function* () {
       ),
 
     sendChatMessage: Effect.fn("Helix.sendChatMessage")(
-      function* (token: AccessToken, broadcasterId: string, message: string) {
+      function* (
+        token: AccessToken,
+        broadcasterId: string,
+        message: string,
+        options: ChatSendOptions = {},
+      ) {
         const request = HttpClientRequest.post(chatEndpoint).pipe(
           HttpClientRequest.bodyJsonUnsafe({
             broadcaster_id: broadcasterId,
             sender_id: broadcasterId,
             message,
+            ...(options.replyTo === undefined ? {} : { reply_parent_message_id: options.replyTo }),
           }),
           authorized(token),
         )

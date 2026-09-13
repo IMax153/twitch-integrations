@@ -72,6 +72,14 @@ twitch event verify-subscription channel.channel_points_custom_reward_redemption
 
 The CLI reports a valid challenge, `text/plain`, and status 200. A notification is sent the same way with `twitch event trigger <type>` and is acknowledged with 204 once the local Channel object has recorded it: `stream.online` and `stream.offline` set the Channel Live or Offline, and pause or unpause the Reward on Twitch when the local Twitch Connection is Authorized, so the API Worker's log shows which state the Channel took and, with no Connection, that the pause update failed. The receiver reaches the Channel object over a binding to the API Worker's script, which `alchemy dev` serves through its local registry. With Nix, `nix run nixpkgs#twitch-cli -- event ...` runs the CLI without installing it.
 
+The Twitch CLI (1.1.25) cannot trigger `channel.chat.message`, so a chat line is sent by a script in the repo that signs the notification the same way:
+
+```sh
+node --env-file=.env apps/eventsub/scripts/chat-message.ts '!today'
+```
+
+The receiver acknowledges with 204. With a Chat Command named `today` defined on the Broadcaster Page, the API Worker's log shows the Invocation answered and the page's Chat Commands section shows its Cooldown running. The reply itself needs the local Twitch Connection to be Authorized; it goes to the real Connected Account's chat as a threaded reply under a message ID Twitch never issued, and the log records what Twitch made of that. Two flags exercise the other rules: `--from <channel id>` marks the line as shared chat from another channel, which the Channel ignores, and `--broadcaster` sends it as the Connected Account, which is answered like any viewer's line. The event names `twitch-user-1` as the broadcaster unless `TWITCH_BROADCASTER_ID` is set, which only the shared chat comparison reads.
+
 ## Deployment
 
 ```sh
@@ -86,7 +94,7 @@ The rate-limiting rule on the receiver's route is a zone ruleset, which needs th
 2. Sign in as the Broadcaster, press Connect for each Provider, and complete consent.
 3. Confirm both Connections show Authorized with the expected Connected Account and a next refresh time.
 4. Confirm the receiver is public: an anonymous `GET https://stream.minbadblue.com/eventsub/twitch` answers an empty 404 with no Access redirect, and an unsigned `POST` answers 403.
-5. Reconnecting Twitch runs the Channel's reconcile, which creates or updates the Song Request Reward and recreates the three Event Subscriptions. Read the outcome in the logs, then list the subscriptions with the Twitch CLI and expect three `enabled` entries whose callback is the receiver:
+5. Reconnecting Twitch runs the Channel's reconcile, which creates or updates the Song Request Reward and recreates the Event Subscriptions: three, or four once the Twitch Connection carries the chat scopes `user:read:chat`, `user:bot`, and `channel:bot`, which the reconnect just granted. Read the outcome in the logs, then list the subscriptions with the Twitch CLI and expect three or four `enabled` entries whose callback is the receiver:
 
    ```sh
    pnpm exec alchemy logs -r Worker,EventSub --since 10m --stage production

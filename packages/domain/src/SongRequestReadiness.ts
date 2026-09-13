@@ -3,7 +3,7 @@ import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import type { ChannelMonitoring } from "./ChannelMonitoring.ts"
 import type { ConnectionSummary } from "./ConnectionSummary.ts"
-import { EventSubscriptionType } from "./EventSubscription.ts"
+import type { EventSubscriptionType } from "./EventSubscription.ts"
 import { ProviderName, providerLabels } from "./ProviderName.ts"
 
 export type SongRequestReadiness =
@@ -14,6 +14,13 @@ const requiredScopes: Record<ProviderName, ReadonlyArray<string>> = {
   spotify: ["user-modify-playback-state", "user-read-playback-state"],
   twitch: ["channel:read:redemptions", "channel:manage:redemptions"],
 }
+
+/** The Event Subscriptions a Song Request depends on; the chat one serves Chat Commands alone. */
+const requiredSubscriptions: ReadonlyArray<EventSubscriptionType> = [
+  "channel.channel_points_custom_reward_redemption.add",
+  "stream.online",
+  "stream.offline",
+]
 
 const connectionReasons = (connections: ReadonlyArray<ConnectionSummary>, now: number) =>
   Array.flatMap(ProviderName.literals, (provider) => {
@@ -54,7 +61,7 @@ const evaluate = (
     }),
     ...Array.map(
       Array.filter(
-        EventSubscriptionType.literals,
+        requiredSubscriptions,
         (type) =>
           !channel.eventSubscriptions.some(
             (subscription) =>

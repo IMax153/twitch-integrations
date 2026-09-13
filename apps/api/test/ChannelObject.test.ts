@@ -34,6 +34,7 @@ import {
   spotifyWithTracks,
   storedSubscriptions,
   twitchConnection,
+  twitchConnectionWithChat,
 } from "./fixtures.ts"
 
 const at = (iso: string) => DateTime.makeUnsafe(iso).pipe(DateTime.toEpochMillis, TestClock.setTime)
@@ -82,6 +83,16 @@ const settingsBody = {
 }
 
 const helixRequests = (world: BroadcasterWorld) => world.providers.twitchHelix.received
+
+/** The transport every created Event Subscription names: the receiver and the secret it signs with. */
+const transport = {
+  method: "webhook",
+  callback: testTransport.callback,
+  secret: testTransport.secret,
+}
+
+const asRecord = (json: unknown): Record<string, unknown> =>
+  typeof json === "object" && json !== null ? (json as Record<string, unknown>) : {}
 
 /** The reward requests Helix received, the only ones a test about the Reward is interested in. */
 const rewardRequests = (world: BroadcasterWorld) =>
@@ -205,11 +216,6 @@ describe("ChannelObject.reconcile", () => {
         `POST ${subscriptionsUrl}`,
         `POST ${subscriptionsUrl}`,
       ])
-      const transport = {
-        method: "webhook",
-        callback: testTransport.callback,
-        secret: testTransport.secret,
-      }
       assert.deepStrictEqual(
         requests.slice(3).map((request) => request.json),
         [
@@ -261,6 +267,73 @@ describe("ChannelObject.reconcile", () => {
           revocationReason: Option.none(),
         },
       ])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "creates the chat Event Subscription too once the Twitch Connection carries the chat scopes",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldWithTwitch()
+        yield* world.stores.twitch.writeConnection(twitchConnectionWithChat)
+        yield* world.channel.reconcile()
+        const requests = yield* subscriptionRequests(world)
+        assert.deepStrictEqual(
+          requests.slice(1).map((request) => request.json),
+          [
+            {
+              type: "channel.channel_points_custom_reward_redemption.add",
+              version: "1",
+              condition: { broadcaster_user_id: "twitch-user-1", reward_id: "reward-created" },
+              transport,
+            },
+            {
+              type: "stream.online",
+              version: "1",
+              condition: { broadcaster_user_id: "twitch-user-1" },
+              transport,
+            },
+            {
+              type: "stream.offline",
+              version: "1",
+              condition: { broadcaster_user_id: "twitch-user-1" },
+              transport,
+            },
+            {
+              type: "channel.chat.message",
+              version: "1",
+              condition: { broadcaster_user_id: "twitch-user-1", user_id: "twitch-user-1" },
+              transport,
+            },
+          ],
+        )
+        assert.deepStrictEqual(
+          (yield* world.channelStore.readEventSubscriptions).map(
+            (subscription) => subscription.type,
+          ),
+          [
+            "channel.channel_points_custom_reward_redemption.add",
+            "stream.online",
+            "stream.offline",
+            "channel.chat.message",
+          ],
+        )
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("skips the chat Event Subscription while any chat scope is missing", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithTwitch()
+      yield* world.stores.twitch.writeConnection({
+        ...twitchConnectionWithChat,
+        scopes: twitchConnectionWithChat.scopes.filter((scope) => scope !== "channel:bot"),
+      })
+      yield* world.channel.reconcile()
+      const requests = yield* subscriptionRequests(world)
+      assert.deepStrictEqual(
+        requests.slice(1).map((request) => asRecord(request.json)["type"]),
+        ["channel.channel_points_custom_reward_redemption.add", "stream.online", "stream.offline"],
+      )
     }).pipe(Effect.scoped),
   )
 

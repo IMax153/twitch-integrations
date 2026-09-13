@@ -232,7 +232,7 @@ describe("broadcaster routes", () => {
         consentScreen: "https://id.twitch.tv/oauth2/authorize",
         clientId: "twitch-client-id",
         scope:
-          "channel:read:redemptions channel:manage:redemptions user:read:chat user:write:chat moderator:manage:shoutouts",
+          "channel:read:redemptions channel:manage:redemptions user:read:chat user:write:chat moderator:manage:shoutouts user:bot channel:bot",
       },
     ])("redirects a $provider Connect to its consent screen", ({ provider, ...expected }) =>
       Effect.gen(function* () {
