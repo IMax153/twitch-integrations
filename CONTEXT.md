@@ -89,3 +89,17 @@ _Avoid_: Online, streaming, on air
 **Offline**:
 The channel state in which the Twitch Connected Account is not streaming, or the deployment does not yet know. Rewards are paused, and any Redemption that still arrives is cancelled.
 _Avoid_: Down, not live, unknown
+
+### Chat
+
+**Chat Command**:
+A named reply the Broadcaster defines for the Channel's chat. A viewer invokes it by sending a chat message that, once trimmed, is exactly `!` followed by the name, matched case-sensitively; the deployment then answers that message in chat as the Twitch Connected Account with the Chat Command's fixed response text. A Chat Command is Enabled or Disabled; a Disabled one stays defined but is never answered. The Broadcaster creates, edits, disables, and deletes Chat Commands from the Broadcaster Page, and the name is fixed at creation. Distinct from a Foldkit command in the Broadcaster Page's code.
+_Avoid_: Command (alone), bot command, trigger, canned reply, shortcut
+
+**Invocation**:
+One chat message that names a Chat Command exactly. An Invocation is answered unless the Chat Command is Disabled, in Cooldown, the message came from another channel in shared chat, or the Twitch Connection cannot send.
+_Avoid_: Trigger, call, request
+
+**Cooldown**:
+The period after a Chat Command answers during which further invocations of it are ignored without reply. Editing the Chat Command ends any Cooldown in progress.
+_Avoid_: Rate limit, throttle, debounce
