@@ -3,6 +3,19 @@ import {
   ChannelMonitoring,
   type ChannelMonitoringEncoded,
 } from "@twitch-integrations/domain/ChannelMonitoring"
+import {
+  ChatCommand,
+  type ChatCommandEncoded,
+  ChatCommandDraft,
+  type ChatCommandDraftEncoded,
+  NewChatCommand,
+  type NewChatCommandEncoded,
+} from "@twitch-integrations/domain/ChatCommand"
+import {
+  type DuplicateChatCommand,
+  InvalidChatCommandDraft,
+  type UnknownChatCommand,
+} from "@twitch-integrations/domain/ChatCommandErrors"
 import { Notification, type NotificationEncoded } from "@twitch-integrations/domain/Notification"
 import { hasSettings, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import { observed } from "@twitch-integrations/infra/Failure"
@@ -19,6 +32,7 @@ import { ChannelLock } from "./ChannelLock.ts"
 import { ChannelReceive } from "./ChannelReceive.ts"
 import { ChannelReconcile, type ReconcileError } from "./ChannelReconcile.ts"
 import { ChannelStore } from "./ChannelStore.ts"
+import { ChatCommands } from "./ChatCommands.ts"
 import { Connections } from "./Connections.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
 import { Helix } from "./Helix.ts"
@@ -52,10 +66,36 @@ export type ChannelObjectShape = {
    * use for, changes nothing.
    */
   readonly receive: (notification: NotificationEncoded) => Effect.Effect<void>
+  /**
+   * The Broadcaster's writes to the Chat Commands, each taking the encoded
+   * body the page sent and answering with the encoded Chat Command as
+   * stored. A body the schema refuses, a name already taken in any casing,
+   * or a name not held are typed rejections, which cross the boundary as
+   * plain objects carrying their tag and fields.
+   */
+  readonly createChatCommand: (
+    draft: NewChatCommandEncoded,
+  ) => Effect.Effect<ChatCommandEncoded, DuplicateChatCommand | InvalidChatCommandDraft>
+  readonly updateChatCommand: (
+    name: string,
+    draft: ChatCommandDraftEncoded,
+  ) => Effect.Effect<ChatCommandEncoded, UnknownChatCommand | InvalidChatCommandDraft>
+  readonly deleteChatCommand: (name: string) => Effect.Effect<void, UnknownChatCommand>
 }
 
 const decodeNotification = Schema.decodeUnknownEffect(Notification)
 const encodeMonitoring = Schema.encodeEffect(ChannelMonitoring)
+// What was just stored always encodes, so a failure here is a defect.
+const encodeChatCommand = (command: ChatCommand) =>
+  Effect.orDie(Schema.encodeEffect(ChatCommand)(command))
+
+/** A body the page sent that the schema refused, as the rejection the page can show. */
+const invalidDraft = (issue: Schema.SchemaError) =>
+  InvalidChatCommandDraft.make({ message: issue.message })
+const decodeNewChatCommand = (input: unknown) =>
+  Schema.decodeUnknownEffect(NewChatCommand)(input).pipe(Effect.mapError(invalidDraft))
+const decodeChatCommandDraft = (input: unknown) =>
+  Schema.decodeUnknownEffect(ChatCommandDraft)(input).pipe(Effect.mapError(invalidDraft))
 
 /**
  * The object's behavior over its services, independent of Durable Object
@@ -67,12 +107,13 @@ const encodeMonitoring = Schema.encodeEffect(ChannelMonitoring)
 export const makeChannelObject: Effect.Effect<
   ChannelObjectShape,
   never,
-  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands
 > = Effect.gen(function* () {
   const store = yield* ChannelStore
   const { reconcile } = yield* ChannelReconcile
   const { receive } = yield* ChannelReceive
   const queue = yield* RedemptionQueue
+  const chatCommands = yield* ChatCommands
   const stored = yield* store.readReward
   if (Option.isSome(stored) && !hasSettings(stored.value, songRequestSettings)) {
     yield* Effect.logInfo("The stored Reward's settings differ from the spec; reconciling")
@@ -86,6 +127,19 @@ export const makeChannelObject: Effect.Effect<
     // notification that does not decode is a defect, not a failure to report.
     receive: (notification) =>
       decodeNotification(notification).pipe(Effect.orDie, Effect.flatMap(receive), observed),
+    createChatCommand: (draft) =>
+      decodeNewChatCommand(draft).pipe(
+        Effect.flatMap(chatCommands.create),
+        Effect.flatMap(encodeChatCommand),
+        observed,
+      ),
+    updateChatCommand: (name, draft) =>
+      decodeChatCommandDraft(draft).pipe(
+        Effect.flatMap((decoded) => chatCommands.update(name, decoded)),
+        Effect.flatMap(encodeChatCommand),
+        observed,
+      ),
+    deleteChatCommand: (name) => observed(chatCommands.remove(name)),
   }
 })
 
@@ -95,14 +149,14 @@ export const makeChannelObject: Effect.Effect<
  * and the transport settings.
  */
 export const channelObjectLayer: Layer.Layer<
-  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue,
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands,
   never,
   | SqlClient.SqlClient
   | ProviderCredentials
   | HttpClient.HttpClient
   | Connections
   | EventSubTransport
-> = Layer.merge(ChannelReconcile.layer, ChannelReceive.layer).pipe(
+> = Layer.mergeAll(ChannelReconcile.layer, ChannelReceive.layer, ChatCommands.layer).pipe(
   Layer.provideMerge(RedemptionQueue.layer),
   Layer.provide(SongRequests.layer),
   Layer.provide(Layer.mergeAll(ChannelLock.layer, TwitchAccess.layer, RewardPause.layer)),

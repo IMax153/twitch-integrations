@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] The store creates the `chat_command` table idempotently and reads and writes Chat Commands as Schema-validated JSON documents
 - [ ] Creating `Today` after `today` is rejected as a duplicate; editing or deleting an unknown name is rejected

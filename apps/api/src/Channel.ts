@@ -1,5 +1,15 @@
 import { Notification } from "@twitch-integrations/domain/Notification"
 import type { ChannelMonitoringEncoded } from "@twitch-integrations/domain/ChannelMonitoring"
+import {
+  type ChatCommandEncoded,
+  ChatCommandDraft,
+  NewChatCommand,
+} from "@twitch-integrations/domain/ChatCommand"
+import type {
+  DuplicateChatCommand,
+  InvalidChatCommandDraft,
+  UnknownChatCommand,
+} from "@twitch-integrations/domain/ChatCommandErrors"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -17,12 +27,28 @@ export interface ChannelService {
   readonly reconcile: Effect.Effect<void, ReconcileError>
   /** Hands the Channel a verified notification and returns once the Channel has recorded what it will of it. */
   readonly receive: (notification: Notification) => Effect.Effect<void>
+  /**
+   * The Broadcaster's writes to the Chat Commands. Each takes the decoded
+   * body and answers with the Chat Command as the Channel stored it, in its
+   * encoded form as it crosses the RPC; rejections arrive as plain objects,
+   * matched on `_tag` like a reconcile failure.
+   */
+  readonly createChatCommand: (
+    draft: NewChatCommand,
+  ) => Effect.Effect<ChatCommandEncoded, DuplicateChatCommand | InvalidChatCommandDraft>
+  readonly updateChatCommand: (
+    name: string,
+    draft: ChatCommandDraft,
+  ) => Effect.Effect<ChatCommandEncoded, UnknownChatCommand | InvalidChatCommandDraft>
+  readonly deleteChatCommand: (name: string) => Effect.Effect<void, UnknownChatCommand>
 }
 
 /** The fixed name the one Channel object is addressed by. */
 export const channelName = "channel"
 
 const encodeNotification = Schema.encodeSync(Notification)
+const encodeNewChatCommand = Schema.encodeSync(NewChatCommand)
+const encodeChatCommandDraft = Schema.encodeSync(ChatCommandDraft)
 
 /**
  * The service over any way of reaching the Channel object: the namespace
@@ -35,6 +61,10 @@ const fromObject = (object: () => ChannelObjectShape): ChannelService => ({
   reconcile: Effect.suspend(() => object().reconcile()),
   // Encoded here, before the RPC, so what crosses it is plain JSON.
   receive: (notification) => object().receive(encodeNotification(notification)),
+  createChatCommand: (draft) => object().createChatCommand(encodeNewChatCommand(draft)),
+  updateChatCommand: (name, draft) =>
+    object().updateChatCommand(name, encodeChatCommandDraft(draft)),
+  deleteChatCommand: (name) => object().deleteChatCommand(name),
 })
 
 const make = Effect.map(ChannelObject, (objects) =>
