@@ -1,4 +1,5 @@
 import { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
+import { ChatCommandStatus } from "@twitch-integrations/domain/ChatCommand"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
@@ -16,5 +17,19 @@ export const Message = defineMessageUnion({
   ToggledHeld: { isOpen: Schema.Boolean },
   ToggledReadiness: { isOpen: Schema.Boolean },
   ToggledConnection: { provider: ProviderName, isOpen: Schema.Boolean },
+  UpdatedNewChatCommandName: { value: Schema.String },
+  UpdatedNewChatCommandResponse: { value: Schema.String },
+  SubmittedNewChatCommand: {},
+  ClickedEditChatCommand: { name: Schema.String },
+  UpdatedChatCommandResponse: { value: Schema.String },
+  UpdatedChatCommandCooldown: { value: Schema.String },
+  ClickedCancelChatCommandEdit: {},
+  SubmittedChatCommandEdit: {},
+  ClickedChatCommandStatus: { name: Schema.String, status: ChatCommandStatus },
+  ClickedDeleteChatCommand: { name: Schema.String },
+  ClickedKeepChatCommand: {},
+  ClickedConfirmChatCommandDeletion: {},
+  SucceededChatCommandWrite: {},
+  FailedChatCommandWrite: { message: Schema.String },
 })
 export type Message = typeof Message.Type

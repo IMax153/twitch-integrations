@@ -1,7 +1,9 @@
 import type { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import type { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
+import { ChatCommand } from "@twitch-integrations/domain/ChatCommand"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { AsyncData } from "foldkit"
 import type { Model } from "../src/main.ts"
 import { init } from "../src/main.ts"
@@ -106,3 +108,23 @@ export const authorizedConnections: ReadonlyArray<ConnectionSummary> = [
   },
   { ...authorizedTwitch, scopes: ["channel:manage:redemptions", "channel:read:redemptions"] },
 ]
+
+const decodeChatCommand = Schema.decodeUnknownSync(ChatCommand)
+
+/** A Chat Command as the snapshot carries it, Enabled with the default Cooldown and answered once. */
+export const today: ChatCommand = decodeChatCommand({
+  name: "today",
+  response: "Building the Chat Commands feature",
+  status: "Enabled",
+  cooldown: 10_000,
+  cooldownUntil: null,
+  lastAnsweredAt: "2026-09-11T11:58:00Z",
+})
+
+export const channelWithToday: ChannelMonitoring = { ...channel, chatCommands: [today] }
+
+/** The Twitch Connection after a re-authorization that granted the chat scopes. */
+export const chatReadyTwitch: ConnectionSummary = {
+  ...authorizedTwitch,
+  scopes: [...authorizedTwitch.scopes, "user:bot", "channel:bot"],
+}

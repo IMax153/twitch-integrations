@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
+import { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
+import type { ChatCommandEncoded } from "@twitch-integrations/domain/ChatCommand"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as DateTime from "effect/DateTime"
@@ -31,11 +33,33 @@ const notConfigured = (provider: ProviderName): ConnectionSummary => ({
 const decodeConnections = Schema.decodeUnknownEffect(
   Schema.Array(ConnectionSummary).annotate({ identifier: "Connections" }),
 )
+// The encoded side: the routes' JSON is compared as it crosses the wire.
+const decodeChannel = Schema.decodeUnknownEffect(Schema.toEncoded(ChannelMonitoring))
 
 const world = Effect.map(makeBroadcasterWorld, (world) => {
-  const send = (method: "GET" | "POST", path: string, options?: SendOptions) =>
+  const send = (method: "GET" | "POST" | "DELETE", path: string, options?: SendOptions) =>
     world.send(new Request(`https://worker.example${path}`, { method }), options)
   const get = (path: string, options?: SendOptions) => send("GET", path, options)
+  /** Sends a JSON body as the Broadcaster Page does, as the Broadcaster unless told otherwise. */
+  const sendJson = (
+    method: "POST" | "PUT",
+    path: string,
+    body: unknown,
+    options: SendOptions = asBroadcaster,
+  ) =>
+    world.send(
+      new Request(`https://worker.example${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      options,
+    )
+  const getChannel = Effect.gen(function* () {
+    const response = yield* get("/setup/api/channel", asBroadcaster)
+    assert.strictEqual(response.status, 200)
+    return yield* decodeChannel(yield* Effect.promise(() => response.json()))
+  })
   const authorize = (provider: string) =>
     send("POST", `/oauth/${provider}/authorize`, asBroadcaster)
   /** Starts an authorization and returns the state value the consent URL carries. */
@@ -57,7 +81,9 @@ const world = Effect.map(makeBroadcasterWorld, (world) => {
     ...world,
     sendRequest: world.send,
     send,
+    sendJson,
     get,
+    getChannel,
     authorize,
     startAttempt,
     callback,
@@ -621,6 +647,168 @@ describe("broadcaster routes", () => {
           nextRefreshAt: Option.some(DateTime.makeUnsafe("2026-09-11T12:55:00Z")),
           lastRefreshError: Option.none(),
         })
+      }),
+    )
+  })
+
+  describe("chat commands", () => {
+    const enabledToday: ChatCommandEncoded = {
+      name: "today",
+      response: "Building the Chat Commands feature",
+      status: "Enabled",
+      cooldown: 10_000,
+      cooldownUntil: null,
+      lastAnsweredAt: null,
+    }
+
+    it.effect("creates a Chat Command from a JSON body and lists it in the snapshot", () =>
+      Effect.gen(function* () {
+        const { sendJson, getChannel } = yield* world
+        const response = yield* sendJson("POST", "/setup/api/chat-commands", {
+          name: "today",
+          response: "Building the Chat Commands feature",
+        })
+        assert.strictEqual(response.status, 201)
+        assert.match(response.headers.get("content-type") ?? "", /^application\/json/)
+        assert.deepStrictEqual(yield* Effect.promise(() => response.json()), enabledToday)
+        assert.deepStrictEqual((yield* getChannel).chatCommands, [enabledToday])
+      }),
+    )
+
+    it.effect("answers 400 with a message for a draft the schema refuses", () =>
+      Effect.gen(function* () {
+        const { sendJson, getChannel } = yield* world
+        const response = yield* sendJson("POST", "/setup/api/chat-commands", {
+          name: "to day",
+          response: "x",
+        })
+        assert.strictEqual(response.status, 400)
+        const body = yield* Effect.promise(() => response.json())
+        assert.isString(body.message)
+        assert.isNotEmpty(body.message)
+        assert.deepStrictEqual((yield* getChannel).chatCommands, [])
+      }),
+    )
+
+    it.effect("answers 409 for a name already taken in another casing", () =>
+      Effect.gen(function* () {
+        const { sendJson } = yield* world
+        yield* sendJson("POST", "/setup/api/chat-commands", { name: "today", response: "one" })
+        const response = yield* sendJson("POST", "/setup/api/chat-commands", {
+          name: "Today",
+          response: "two",
+        })
+        assert.strictEqual(response.status, 409)
+        const body = yield* Effect.promise(() => response.json())
+        assert.include(body.message, "Today")
+      }),
+    )
+
+    it.effect("accepts only JSON bodies", () =>
+      Effect.gen(function* () {
+        const { sendRequest, getChannel } = yield* world
+        const form = yield* sendRequest(
+          new Request("https://worker.example/setup/api/chat-commands", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: "name=today&response=x",
+          }),
+          asBroadcaster,
+        )
+        assert.strictEqual(form.status, 415)
+        const malformed = yield* sendRequest(
+          new Request("https://worker.example/setup/api/chat-commands", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{not json",
+          }),
+          asBroadcaster,
+        )
+        assert.strictEqual(malformed.status, 400)
+        assert.deepStrictEqual((yield* getChannel).chatCommands, [])
+      }),
+    )
+
+    it.effect("edits a Chat Command by name and answers with what was stored", () =>
+      Effect.gen(function* () {
+        const { sendJson, getChannel } = yield* world
+        yield* sendJson("POST", "/setup/api/chat-commands", { name: "today", response: "old" })
+        const response = yield* sendJson("PUT", "/setup/api/chat-commands/today", {
+          response: "new",
+          cooldown: 30_000,
+          status: "Disabled",
+        })
+        assert.strictEqual(response.status, 200)
+        const expected: ChatCommandEncoded = {
+          ...enabledToday,
+          response: "new",
+          cooldown: 30_000,
+          status: "Disabled",
+        }
+        assert.deepStrictEqual(yield* Effect.promise(() => response.json()), expected)
+        assert.deepStrictEqual((yield* getChannel).chatCommands, [expected])
+      }),
+    )
+
+    it.effect("answers 404 for an edit or deletion of an unknown name", () =>
+      Effect.gen(function* () {
+        const { sendJson, send } = yield* world
+        const edit = yield* sendJson("PUT", "/setup/api/chat-commands/today", {
+          response: "new",
+          cooldown: 30_000,
+          status: "Enabled",
+        })
+        assert.strictEqual(edit.status, 404)
+        assert.include((yield* Effect.promise(() => edit.json())).message, "today")
+        const deletion = yield* send("DELETE", "/setup/api/chat-commands/today", asBroadcaster)
+        assert.strictEqual(deletion.status, 404)
+      }),
+    )
+
+    it.effect("answers 400 for an edit the schema refuses and keeps the stored Chat Command", () =>
+      Effect.gen(function* () {
+        const { sendJson, getChannel } = yield* world
+        yield* sendJson("POST", "/setup/api/chat-commands", { name: "today", response: "old" })
+        const response = yield* sendJson("PUT", "/setup/api/chat-commands/today", {
+          response: "new",
+          cooldown: 3_600_001,
+          status: "Enabled",
+        })
+        assert.strictEqual(response.status, 400)
+        assert.deepStrictEqual(
+          (yield* getChannel).chatCommands.map((command) => command.response),
+          ["old"],
+        )
+      }),
+    )
+
+    it.effect("deletes a Chat Command and answers 204", () =>
+      Effect.gen(function* () {
+        const { sendJson, send, getChannel } = yield* world
+        yield* sendJson("POST", "/setup/api/chat-commands", { name: "today", response: "x" })
+        const response = yield* send("DELETE", "/setup/api/chat-commands/today", asBroadcaster)
+        assert.strictEqual(response.status, 204)
+        assert.deepStrictEqual((yield* getChannel).chatCommands, [])
+      }),
+    )
+
+    it.effect("refuses every write without an Access context", () =>
+      Effect.gen(function* () {
+        const { sendJson, send } = yield* world
+        const create = yield* sendJson(
+          "POST",
+          "/setup/api/chat-commands",
+          { name: "today", response: "x" },
+          {},
+        )
+        const edit = yield* sendJson(
+          "PUT",
+          "/setup/api/chat-commands/today",
+          { response: "x", cooldown: 0, status: "Enabled" },
+          {},
+        )
+        const deletion = yield* send("DELETE", "/setup/api/chat-commands/today")
+        assert.deepStrictEqual([create.status, edit.status, deletion.status], [403, 403, 403])
       }),
     )
   })

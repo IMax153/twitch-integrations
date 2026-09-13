@@ -4,13 +4,23 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The three routes exist under the `/setup` prefix gate, decode drafts through the domain schema, and map each rejection to its status and body
-- [ ] The Chat Commands section lists every Chat Command from the snapshot with inline edit, add, disable and enable, and confirmed delete
-- [ ] A save triggers an immediate snapshot fetch; a rejection's message is shown next to the form
-- [ ] The scope notice appears exactly when the Twitch Connection is Authorized and lacks a required chat scope
-- [ ] Route tests cover each rejection and success; story tests cover the list, the notice, and the refetch, following the `foldkit` skill's conventions
-- [ ] `docs/adr/0001` and `0002` are unchanged; the section lives on the root page
+- [x] The three routes exist under the `/setup` prefix gate, decode drafts through the domain schema, and map each rejection to its status and body
+- [x] The Chat Commands section lists every Chat Command from the snapshot with inline edit, add, disable and enable, and confirmed delete
+- [x] A save triggers an immediate snapshot fetch; a rejection's message is shown next to the form
+- [x] The scope notice appears exactly when the Twitch Connection is Authorized and lacks a required chat scope
+- [x] Route tests cover each rejection and success; story tests cover the list, the notice, and the refetch, following the `foldkit` skill's conventions
+- [x] `docs/adr/0001` and `0002` are unchanged; the section lives on the root page
 
 ## Comments
+
+Implemented on 2026-09-13. The three routes live in `apps/api/src/BroadcasterRoutes.ts` beside the read routes, under the same `/setup` prefix gate: a body that is not `application/json` answers 415, one the schema refuses 400 with the Schema issue's message, a duplicate name 409, an unknown name 404, each as `{ message }`; a create answers 201 with the stored Chat Command and a deletion 204. The Channel's rejections cross the RPC as plain objects and are matched on `_tag`, as the reconcile's are. Route tests in `apps/api/test/BroadcasterRoutes.test.ts` cover each answer through the router with JSON bodies, and the Access gate refusing every write.
+
+The page gains `apps/web/src/chatCommandView.ts`, a full-width Chat Commands section between the overview and the Redemption details: the list (name, response, status, Cooldown, a muted last-answered line), inline edit and delete confirmation per row, Disable and Enable buttons that send the stored response and Cooldown with the new status, and an add form. Every write is a Foldkit Command with args (`CreateChatCommand`, `UpdateChatCommand`, `DeleteChatCommand`) that settles into `SucceededChatCommandWrite` or `FailedChatCommandWrite` carrying the route's message; success closes whatever it came from and issues `FetchChannel` at once, even while a scheduled refresh is in flight, since that one may have read the Channel before the write landed. A refusal is shown by the row it came from, or by the add form, and the typed draft stays. The scope notice reads the Twitch Connection from the Connections data and appears only when it is Authorized and `missingChatScopes` (a new helper in the domain's `ChatCommand.ts`, beside the required list) is non-empty. Story tests cover the writes and the refetch; scene tests cover the list, the notice in all four Connection states, the inline edit and delete, and where a refusal shows. `vp check` and the full suite (315 tests) pass.
+
+Three choices to know about. First, the page validates a row's Cooldown (whole seconds, 0 to 3600) and response length before sending, with its own wording, so the common slips never make a request; the name is left to the route, since the add form's `pattern` and `maxlength` already guide it and the 400 message covers the rest. Second, the notice says "Press Reconnect on the Twitch Connection" because that is the button's label once a Connection exists; ticket 05's second box says Connect and means the same button. Third, while a write is in flight every control in the section is disabled rather than queued, so two writes never overlap; the Model keeps the one pending write with where it came from (`maybePendingWrite`), which is also how a refusal finds its row and how a row's save leaves a draft typed in the add form alone.
+
+Not done here: the page was exercised through the scene tests only, not in a browser, so the CSS is unseen. Ticket 05 covers that in production.
+
+Code review (2026-09-13, `/code-review origin/main`) and what changed after it: the Messages were renamed to the `generate-program` conventions' prefixes (`Updated*` for inputs, `Clicked*` for buttons); the two casts in the write settler went, the branch is typed instead; a refused Disable or Enable had shown under the add form because the write's origin was not recorded, now it shows by its row, with a story for it; a row's save had emptied the add form, now only the create does; the Cooldown bounds and wording derive from the domain's `Cooldown` and `maximumCooldown` rather than repeating 3600. Left as is: the 415 for a non-JSON body (the spec's "accept only JSON" needs some answer, and 415 is the honest one); the page's own validation wording for the Cooldown and response (the request is never made for the common slips); `main.ts` holding both the monitoring refresh and the Chat Command writes, worth a split into a `chatCommandUpdate.ts` if it grows again.
