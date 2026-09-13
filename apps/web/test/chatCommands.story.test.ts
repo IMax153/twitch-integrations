@@ -27,14 +27,14 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(loadedModel),
-      message(Message.ChangedNewChatCommandName({ value: "today" })),
-      message(Message.ChangedNewChatCommandResponse({ value: today.response })),
+      message(Message.UpdatedNewChatCommandName({ value: "today" })),
+      message(Message.UpdatedNewChatCommandResponse({ value: today.response })),
       message(Message.SubmittedNewChatCommand()),
-      model((next) => expect(next.isWritingChatCommand).toBe(true)),
+      model((next) => expect(Option.isSome(next.maybePendingWrite)).toBe(true)),
       Command.expectExact(CreateChatCommand({ name: "today", response: today.response })),
       Command.resolve(CreateChatCommand, Message.SucceededChatCommandWrite()),
       model((next) => {
-        expect(next.isWritingChatCommand).toBe(false)
+        expect(next.maybePendingWrite).toEqual(Option.none())
         expect(next.newChatCommand).toEqual({ name: "", response: "" })
         expect(AsyncData.isRefreshing(next.channel)).toBe(true)
       }),
@@ -53,8 +53,8 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(loadedModel),
-      message(Message.ChangedNewChatCommandName({ value: "Today" })),
-      message(Message.ChangedNewChatCommandResponse({ value: "two" })),
+      message(Message.UpdatedNewChatCommandName({ value: "Today" })),
+      message(Message.UpdatedNewChatCommandResponse({ value: "two" })),
       message(Message.SubmittedNewChatCommand()),
       Command.resolve(
         CreateChatCommand,
@@ -62,7 +62,7 @@ describe("Chat Command writes", () => {
       ),
       Command.expectNone(),
       model((next) => {
-        expect(next.isWritingChatCommand).toBe(false)
+        expect(next.maybePendingWrite).toEqual(Option.none())
         expect(next.newChatCommand).toEqual({ name: "Today", response: "two" })
         expect(next.maybeChatCommandError).toEqual(
           Option.some({
@@ -78,14 +78,14 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(withToday),
-      message(Message.StartedEditingChatCommand({ name: "today" })),
+      message(Message.ClickedEditChatCommand({ name: "today" })),
       model((next) => {
         expect(next.maybeChatCommandEdit).toEqual(
           Option.some({ name: "today", response: today.response, cooldownSeconds: "10" }),
         )
       }),
-      message(Message.ChangedChatCommandResponse({ value: "new" })),
-      message(Message.ChangedChatCommandCooldown({ value: "30" })),
+      message(Message.UpdatedChatCommandResponse({ value: "new" })),
+      message(Message.UpdatedChatCommandCooldown({ value: "30" })),
       message(Message.SubmittedChatCommandEdit()),
       Command.expectExact(
         UpdateChatCommand({
@@ -103,8 +103,8 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(withToday),
-      message(Message.StartedEditingChatCommand({ name: "today" })),
-      message(Message.ChangedChatCommandCooldown({ value: "3601" })),
+      message(Message.ClickedEditChatCommand({ name: "today" })),
+      message(Message.UpdatedChatCommandCooldown({ value: "3601" })),
       message(Message.SubmittedChatCommandEdit()),
       Command.expectNone(),
       model((next) => {
@@ -113,7 +113,7 @@ describe("Chat Command writes", () => {
         )
         expect(Option.isSome(next.maybeChatCommandEdit)).toBe(true)
       }),
-      message(Message.CancelledEditingChatCommand()),
+      message(Message.ClickedCancelChatCommandEdit()),
       model((next) => {
         expect(next.maybeChatCommandEdit).toEqual(Option.none())
         expect(next.maybeChatCommandError).toEqual(Option.none())
@@ -125,7 +125,7 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(withToday),
-      message(Message.RequestedChatCommandStatus({ name: "today", status: "Disabled" })),
+      message(Message.ClickedChatCommandStatus({ name: "today", status: "Disabled" })),
       Command.expectExact(
         UpdateChatCommand({
           name: "today",
@@ -141,14 +141,14 @@ describe("Chat Command writes", () => {
     story(
       update,
       given(withToday),
-      message(Message.RequestedChatCommandDeletion({ name: "today" })),
+      message(Message.ClickedDeleteChatCommand({ name: "today" })),
       Command.expectNone(),
       model((next) => expect(next.maybePendingDeletion).toEqual(Option.some("today"))),
-      message(Message.CancelledChatCommandDeletion()),
+      message(Message.ClickedKeepChatCommand()),
       Command.expectNone(),
       model((next) => expect(next.maybePendingDeletion).toEqual(Option.none())),
-      message(Message.RequestedChatCommandDeletion({ name: "today" })),
-      message(Message.ConfirmedChatCommandDeletion()),
+      message(Message.ClickedDeleteChatCommand({ name: "today" })),
+      message(Message.ClickedConfirmChatCommandDeletion()),
       Command.expectExact(DeleteChatCommand({ name: "today" })),
       Command.resolve(DeleteChatCommand, Message.SucceededChatCommandWrite()),
       model((next) => expect(next.maybePendingDeletion).toEqual(Option.none())),
@@ -168,10 +168,43 @@ describe("Chat Command writes", () => {
     story(
       update,
       given({ ...withToday, channel: AsyncData.Refreshing({ data: channelWithToday }) }),
-      message(Message.RequestedChatCommandStatus({ name: "today", status: "Disabled" })),
+      message(Message.ClickedChatCommandStatus({ name: "today", status: "Disabled" })),
       Command.resolve(UpdateChatCommand, Message.SucceededChatCommandWrite()),
       Command.expectExact(FetchChannel),
       Command.resolve(FetchChannel, refetched),
+    )
+  })
+
+  test("a refused Disable is shown by its row, not by the add form", () => {
+    story(
+      update,
+      given(withToday),
+      message(Message.ClickedChatCommandStatus({ name: "today", status: "Disabled" })),
+      Command.resolve(
+        UpdateChatCommand,
+        Message.FailedChatCommandWrite({ message: "No Chat Command is named today." }),
+      ),
+      Command.expectNone(),
+      model((next) => {
+        expect(next.maybeChatCommandError).toEqual(
+          Option.some({
+            maybeName: Option.some("today"),
+            message: "No Chat Command is named today.",
+          }),
+        )
+      }),
+    )
+  })
+
+  test("a row's save leaves a draft typed in the add form alone", () => {
+    story(
+      update,
+      given(withToday),
+      message(Message.UpdatedNewChatCommandName({ value: "soon" })),
+      message(Message.ClickedChatCommandStatus({ name: "today", status: "Disabled" })),
+      Command.resolve(UpdateChatCommand, Message.SucceededChatCommandWrite()),
+      Command.resolve(FetchChannel, refetched),
+      model((next) => expect(next.newChatCommand).toEqual({ name: "soon", response: "" })),
     )
   })
 })

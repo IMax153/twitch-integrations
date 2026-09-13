@@ -30,6 +30,12 @@ export const ChatCommandEdit = Schema.Struct({
 }).annotate({ identifier: "ChatCommandEdit" })
 export type ChatCommandEdit = typeof ChatCommandEdit.Type
 
+/** Where a Chat Command write came from: the row named, or the add form when no name is set. */
+export const ChatCommandWriteOrigin = Schema.Struct({
+  maybeName: Schema.Option(Schema.String),
+}).annotate({ identifier: "ChatCommandWriteOrigin" })
+export type ChatCommandWriteOrigin = typeof ChatCommandWriteOrigin.Type
+
 /** A refused write, shown next to the row it came from, or next to the add form when no name is set. */
 export const ChatCommandError = Schema.Struct({
   maybeName: Schema.Option(Schema.String),
@@ -61,8 +67,8 @@ export const Model = Schema.Struct({
   maybeChatCommandEdit: Schema.Option(ChatCommandEdit),
   /** The name of the Chat Command whose deletion awaits confirmation. */
   maybePendingDeletion: Schema.Option(Schema.String),
-  /** One Chat Command write at a time: the section's controls wait for it. */
-  isWritingChatCommand: Schema.Boolean,
+  /** The one Chat Command write in flight, if any: the section's controls wait for it. */
+  maybePendingWrite: Schema.Option(ChatCommandWriteOrigin),
   maybeChatCommandError: Schema.Option(ChatCommandError),
 }).annotate({ identifier: "Model" })
 export type Model = typeof Model.Type

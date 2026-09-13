@@ -1,5 +1,5 @@
 import type { ChatCommand } from "@twitch-integrations/domain/ChatCommand"
-import { missingChatScopes } from "@twitch-integrations/domain/ChatCommand"
+import { maximumCooldown, missingChatScopes } from "@twitch-integrations/domain/ChatCommand"
 import * as Array from "effect/Array"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -75,7 +75,7 @@ const editRowView = (
       h.textarea([
         h.Id(`chat-command-${command.name}-response`),
         h.Value(edit.response),
-        h.OnInput((value) => Message.ChangedChatCommandResponse({ value })),
+        h.OnInput((value) => Message.UpdatedChatCommandResponse({ value })),
         h.Maxlength(500),
         h.Rows(3),
         h.Required(true),
@@ -86,10 +86,10 @@ const editRowView = (
         h.Type("number"),
         h.InputMode("numeric"),
         h.Min("0"),
-        h.Max("3600"),
+        h.Max(String(Duration.toSeconds(maximumCooldown))),
         h.Step("1"),
         h.Value(edit.cooldownSeconds),
-        h.OnInput((value) => Message.ChangedChatCommandCooldown({ value })),
+        h.OnInput((value) => Message.UpdatedChatCommandCooldown({ value })),
         h.Required(true),
       ]),
       rejectionView(model, Option.some(command.name), h),
@@ -100,7 +100,7 @@ const editRowView = (
             [
               h.Type("submit"),
               h.AriaLabel(`Save ${invocation(command.name)}`),
-              h.Disabled(model.isWritingChatCommand),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Save"],
           ),
@@ -108,8 +108,8 @@ const editRowView = (
             [
               h.Type("button"),
               h.AriaLabel(`Cancel editing ${invocation(command.name)}`),
-              h.OnClick(Message.CancelledEditingChatCommand()),
-              h.Disabled(model.isWritingChatCommand),
+              h.OnClick(Message.ClickedCancelChatCommandEdit()),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Cancel"],
           ),
@@ -132,8 +132,8 @@ const deleteRowView = (command: ChatCommand, model: Model, h: HtmlBuilder<Messag
             [
               h.Type("button"),
               h.AriaLabel(`Confirm deleting ${invocation(command.name)}`),
-              h.OnClick(Message.ConfirmedChatCommandDeletion()),
-              h.Disabled(model.isWritingChatCommand),
+              h.OnClick(Message.ClickedConfirmChatCommandDeletion()),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Delete"],
           ),
@@ -141,8 +141,8 @@ const deleteRowView = (command: ChatCommand, model: Model, h: HtmlBuilder<Messag
             [
               h.Type("button"),
               h.AriaLabel(`Keep ${invocation(command.name)}`),
-              h.OnClick(Message.CancelledChatCommandDeletion()),
-              h.Disabled(model.isWritingChatCommand),
+              h.OnClick(Message.ClickedKeepChatCommand()),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Keep"],
           ),
@@ -182,8 +182,8 @@ const displayRowView = (command: ChatCommand, model: Model, h: HtmlBuilder<Messa
             [
               h.Type("button"),
               h.AriaLabel(`Edit ${invocation(command.name)}`),
-              h.OnClick(Message.StartedEditingChatCommand({ name: command.name })),
-              h.Disabled(model.isWritingChatCommand),
+              h.OnClick(Message.ClickedEditChatCommand({ name: command.name })),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Edit"],
           ),
@@ -194,9 +194,9 @@ const displayRowView = (command: ChatCommand, model: Model, h: HtmlBuilder<Messa
                 `${nextStatus === "Disabled" ? "Disable" : "Enable"} ${invocation(command.name)}`,
               ),
               h.OnClick(
-                Message.RequestedChatCommandStatus({ name: command.name, status: nextStatus }),
+                Message.ClickedChatCommandStatus({ name: command.name, status: nextStatus }),
               ),
-              h.Disabled(model.isWritingChatCommand),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             [nextStatus === "Disabled" ? "Disable" : "Enable"],
           ),
@@ -204,8 +204,8 @@ const displayRowView = (command: ChatCommand, model: Model, h: HtmlBuilder<Messa
             [
               h.Type("button"),
               h.AriaLabel(`Delete ${invocation(command.name)}`),
-              h.OnClick(Message.RequestedChatCommandDeletion({ name: command.name })),
-              h.Disabled(model.isWritingChatCommand),
+              h.OnClick(Message.ClickedDeleteChatCommand({ name: command.name })),
+              h.Disabled(Option.isSome(model.maybePendingWrite)),
             ],
             ["Delete"],
           ),
@@ -253,7 +253,7 @@ const addFormView = (model: Model, h: HtmlBuilder<Message>) =>
         h.Id("new-chat-command-name"),
         h.Type("text"),
         h.Value(model.newChatCommand.name),
-        h.OnInput((value) => Message.ChangedNewChatCommandName({ value })),
+        h.OnInput((value) => Message.UpdatedNewChatCommandName({ value })),
         h.Maxlength(32),
         h.Pattern("[A-Za-z0-9_]{1,32}"),
         h.Autocomplete("off"),
@@ -264,7 +264,7 @@ const addFormView = (model: Model, h: HtmlBuilder<Message>) =>
       h.textarea([
         h.Id("new-chat-command-response"),
         h.Value(model.newChatCommand.response),
-        h.OnInput((value) => Message.ChangedNewChatCommandResponse({ value })),
+        h.OnInput((value) => Message.UpdatedNewChatCommandResponse({ value })),
         h.Maxlength(500),
         h.Rows(3),
         h.Required(true),
@@ -276,7 +276,10 @@ const addFormView = (model: Model, h: HtmlBuilder<Message>) =>
         ],
       ),
       rejectionView(model, Option.none(), h),
-      h.button([h.Type("submit"), h.Disabled(model.isWritingChatCommand)], ["Add Chat Command"]),
+      h.button(
+        [h.Type("submit"), h.Disabled(Option.isSome(model.maybePendingWrite))],
+        ["Add Chat Command"],
+      ),
     ],
   )
 

@@ -4,6 +4,7 @@ import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/unstable/http/HttpClient"
+import type * as HttpClientError from "effect/unstable/http/HttpClientError"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { Command, Http } from "foldkit"
@@ -76,14 +77,17 @@ type WriteMessage =
 const settleWrite = <E, R>(
   request: Effect.Effect<HttpClientResponse.HttpClientResponse, E, R>,
 ): Effect.Effect<WriteMessage, never, R> =>
-  Effect.gen(function* () {
-    const response = yield* request
-    if (response.status >= 200 && response.status < 300) {
-      return Message.SucceededChatCommandWrite() as WriteMessage
-    }
-    const { message } = yield* Effect.flatMap(response.json, readRejection)
-    return Message.FailedChatCommandWrite({ message }) as WriteMessage
-  }).pipe(
+  request.pipe(
+    Effect.flatMap(
+      (
+        response,
+      ): Effect.Effect<WriteMessage, HttpClientError.HttpClientError | Schema.SchemaError> =>
+        response.status >= 200 && response.status < 300
+          ? Effect.succeed(Message.SucceededChatCommandWrite())
+          : Effect.map(Effect.flatMap(response.json, readRejection), ({ message }) =>
+              Message.FailedChatCommandWrite({ message }),
+            ),
+    ),
     Effect.timeout(requestTimeoutMs),
     Effect.orElseSucceed(() => Message.FailedChatCommandWrite({ message: writeUnanswered })),
   )

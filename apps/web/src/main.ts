@@ -1,6 +1,7 @@
 import {
   type ChatCommand,
   ChatCommandResponse,
+  Cooldown,
   maximumCooldown,
 } from "@twitch-integrations/domain/ChatCommand"
 import * as Array from "effect/Array"
@@ -18,7 +19,13 @@ import {
   UpdateChatCommand,
 } from "./command.ts"
 import { Message } from "./message.ts"
-import { type Flags, type Model, emptyNewChatCommand, refreshIntervalMs } from "./model.ts"
+import {
+  type ChatCommandWriteOrigin,
+  type Flags,
+  type Model,
+  emptyNewChatCommand,
+  refreshIntervalMs,
+} from "./model.ts"
 
 export { Flags, Model } from "./model.ts"
 export { Message } from "./message.ts"
@@ -50,7 +57,7 @@ export const init: Runtime.ApplicationInit<Model, Message, Flags> = (flags) => (
     newChatCommand: emptyNewChatCommand,
     maybeChatCommandEdit: Option.none(),
     maybePendingDeletion: Option.none(),
-    isWritingChatCommand: false,
+    maybePendingWrite: Option.none(),
     maybeChatCommandError: Option.none(),
   },
   commands: flags.isVisible ? [FetchConnections(), FetchChannel()] : Array.empty(),
@@ -114,77 +121,88 @@ const storedChatCommand = (model: Model, name: string): Option.Option<ChatComman
     Array.findFirst(channel.chatCommands, (command) => command.name === name),
   )
 
-const cooldownWording = "Cooldown must be a whole number of seconds from 0 to 3600."
+const maximumCooldownSeconds = Duration.toSeconds(maximumCooldown)
+const cooldownWording = `Cooldown must be a whole number of seconds from 0 to ${maximumCooldownSeconds}.`
+const parseCooldownMillis = Schema.decodeUnknownOption(Cooldown)
 
-/** The Cooldown a row's seconds field names, or the wording to show when it names none. */
+/** The Cooldown a row's seconds field names, decoded through the domain's bounds, or the wording to show when it names none. */
 const parseCooldown = (seconds: string): Result.Result<Duration.Duration, string> => {
   const value = Number(seconds.trim())
-  return seconds.trim() !== "" && Number.isInteger(value) && value >= 0
-    ? Result.succeed(Duration.seconds(value)).pipe(
-        Result.filterOrFail(
-          (cooldown) => Duration.isLessThanOrEqualTo(cooldown, maximumCooldown),
-          () => cooldownWording,
-        ),
-      )
-    : Result.fail(cooldownWording)
+  const cooldown =
+    seconds.trim() !== "" && Number.isInteger(value)
+      ? parseCooldownMillis(value * 1000)
+      : Option.none<Duration.Duration>()
+  return Option.match(cooldown, {
+    onNone: () => Result.fail(cooldownWording),
+    onSome: Result.succeed,
+  })
 }
-
-/** Marks a write as under way and clears any earlier refusal; the write's answer ends it. */
-const startWrite = (
-  model: Model,
-  commands: NonNullable<UpdateReturn["commands"]>,
-): UpdateReturn => ({
-  model: evo(model, {
-    isWritingChatCommand: () => true,
-    maybeChatCommandError: () => Option.none(),
-  }),
-  commands,
-})
-
-const refuseLocally = (
-  model: Model,
-  maybeName: Option.Option<string>,
-  message: string,
-): UpdateReturn => ({
-  model: evo(model, { maybeChatCommandError: () => Option.some({ maybeName, message }) }),
-})
 
 const responseWording = "Response must be 1 to 500 characters."
 const parseResponse = Schema.decodeUnknownOption(ChatCommandResponse)
 
-const submitNewChatCommand = (model: Model): UpdateReturn =>
-  model.isWritingChatCommand
+/**
+ * Starts a write from the add form or from the row named, clearing any
+ * earlier refusal; the write's answer ends it. While one is in flight the
+ * section's controls are disabled, so a second request is ignored.
+ */
+const startWrite = (
+  model: Model,
+  origin: ChatCommandWriteOrigin,
+  commands: NonNullable<UpdateReturn["commands"]>,
+): UpdateReturn =>
+  Option.isSome(model.maybePendingWrite)
     ? { model }
-    : startWrite(model, [
-        CreateChatCommand({
-          name: model.newChatCommand.name.trim(),
-          response: model.newChatCommand.response,
+    : {
+        model: evo(model, {
+          maybePendingWrite: () => Option.some(origin),
+          maybeChatCommandError: () => Option.none(),
         }),
-      ])
+        commands,
+      }
+
+const refuseLocally = (
+  model: Model,
+  origin: ChatCommandWriteOrigin,
+  message: string,
+): UpdateReturn => ({
+  model: evo(model, {
+    maybeChatCommandError: () => Option.some({ maybeName: origin.maybeName, message }),
+  }),
+})
+
+const fromAddForm: ChatCommandWriteOrigin = { maybeName: Option.none() }
+const fromRow = (name: string): ChatCommandWriteOrigin => ({ maybeName: Option.some(name) })
+
+const submitNewChatCommand = (model: Model): UpdateReturn =>
+  startWrite(model, fromAddForm, [
+    CreateChatCommand({
+      name: model.newChatCommand.name.trim(),
+      response: model.newChatCommand.response,
+    }),
+  ])
 
 const submitChatCommandEdit = (model: Model): UpdateReturn =>
   Option.match(model.maybeChatCommandEdit, {
     onNone: () => ({ model }),
     onSome: (edit) => {
-      if (model.isWritingChatCommand) {
-        return { model }
-      }
+      const origin = fromRow(edit.name)
       const stored = storedChatCommand(model, edit.name)
       if (Option.isNone(stored)) {
         return refuseLocally(
           model,
-          Option.some(edit.name),
-          "This Chat Command is no longer in the snapshot. Refresh and try again.",
+          origin,
+          "This Chat Command is no longer on the Channel. Refresh and try again.",
         )
       }
       const response = parseResponse(edit.response)
       if (Option.isNone(response)) {
-        return refuseLocally(model, Option.some(edit.name), responseWording)
+        return refuseLocally(model, origin, responseWording)
       }
       return Result.match(parseCooldown(edit.cooldownSeconds), {
-        onFailure: (message) => refuseLocally(model, Option.some(edit.name), message),
+        onFailure: (message) => refuseLocally(model, origin, message),
         onSuccess: (cooldown) =>
-          startWrite(model, [
+          startWrite(model, origin, [
             UpdateChatCommand({
               name: edit.name,
               draft: { response: response.value, cooldown, status: stored.value.status },
@@ -196,53 +214,54 @@ const submitChatCommandEdit = (model: Model): UpdateReturn =>
 
 const requestChatCommandStatus =
   (model: Model) =>
-  ({ name, status }: typeof Message.RequestedChatCommandStatus.Type): UpdateReturn =>
+  ({ name, status }: typeof Message.ClickedChatCommandStatus.Type): UpdateReturn =>
     Option.match(storedChatCommand(model, name), {
       onNone: () => ({ model }),
       onSome: (stored) =>
-        model.isWritingChatCommand
-          ? { model }
-          : startWrite(model, [
-              UpdateChatCommand({
-                name,
-                draft: { response: stored.response, cooldown: stored.cooldown, status },
-              }),
-            ]),
+        startWrite(model, fromRow(name), [
+          UpdateChatCommand({
+            name,
+            draft: { response: stored.response, cooldown: stored.cooldown, status },
+          }),
+        ]),
     })
 
 const confirmChatCommandDeletion = (model: Model): UpdateReturn =>
   Option.match(model.maybePendingDeletion, {
     onNone: () => ({ model }),
-    onSome: (name) =>
-      model.isWritingChatCommand ? { model } : startWrite(model, [DeleteChatCommand({ name })]),
+    onSome: (name) => startWrite(model, fromRow(name), [DeleteChatCommand({ name })]),
   })
 
-/** A write landed: the form, row, and confirmation it came from close, and the snapshot is read again. */
-const settleWrite = (model: Model): UpdateReturn =>
+/**
+ * A write landed: what it came from closes (the add form empties only when
+ * the write was its own, so a draft typed there survives a row's save) and
+ * the Channel is read again.
+ */
+const completeWrite = (model: Model): UpdateReturn =>
   refetchChannel(
     evo(model, {
-      isWritingChatCommand: () => false,
-      newChatCommand: () => emptyNewChatCommand,
+      maybePendingWrite: () => Option.none(),
+      newChatCommand: (form) =>
+        Option.exists(model.maybePendingWrite, (write) => Option.isNone(write.maybeName))
+          ? emptyNewChatCommand
+          : form,
       maybeChatCommandEdit: () => Option.none(),
       maybePendingDeletion: () => Option.none(),
     }),
   )
 
 /**
- * A refused write is shown where it came from: by the row being edited or
- * deleted, or by the add form. What was typed stays so it can be corrected.
+ * A refused write is shown where it came from: by the row it was for, or by
+ * the add form. What was typed stays so it can be corrected.
  */
 const refuseWrite =
   (model: Model) =>
   ({ message }: typeof Message.FailedChatCommandWrite.Type): UpdateReturn => ({
     model: evo(model, {
-      isWritingChatCommand: () => false,
+      maybePendingWrite: () => Option.none(),
       maybeChatCommandError: () =>
         Option.some({
-          maybeName: Option.orElse(
-            Option.map(model.maybeChatCommandEdit, (edit) => edit.name),
-            () => model.maybePendingDeletion,
-          ),
+          maybeName: Option.flatMap(model.maybePendingWrite, (write) => write.maybeName),
           message,
         }),
     }),
@@ -286,14 +305,14 @@ export const update = (model: Model, message: Message) =>
             : Array.filter(current, (value) => value !== provider),
       }),
     }),
-    ChangedNewChatCommandName: ({ value }) => ({
+    UpdatedNewChatCommandName: ({ value }) => ({
       model: evo(model, { newChatCommand: (form) => evo(form, { name: () => value }) }),
     }),
-    ChangedNewChatCommandResponse: ({ value }) => ({
+    UpdatedNewChatCommandResponse: ({ value }) => ({
       model: evo(model, { newChatCommand: (form) => evo(form, { response: () => value }) }),
     }),
     SubmittedNewChatCommand: () => submitNewChatCommand(model),
-    StartedEditingChatCommand: ({ name }) => ({
+    ClickedEditChatCommand: ({ name }) => ({
       model: evo(model, {
         maybeChatCommandEdit: () =>
           Option.map(storedChatCommand(model, name), (stored) => ({
@@ -305,38 +324,38 @@ export const update = (model: Model, message: Message) =>
         maybeChatCommandError: () => Option.none(),
       }),
     }),
-    ChangedChatCommandResponse: ({ value }) => ({
+    UpdatedChatCommandResponse: ({ value }) => ({
       model: evo(model, {
         maybeChatCommandEdit: Option.map((edit) => evo(edit, { response: () => value })),
       }),
     }),
-    ChangedChatCommandCooldown: ({ value }) => ({
+    UpdatedChatCommandCooldown: ({ value }) => ({
       model: evo(model, {
         maybeChatCommandEdit: Option.map((edit) => evo(edit, { cooldownSeconds: () => value })),
       }),
     }),
-    CancelledEditingChatCommand: () => ({
+    ClickedCancelChatCommandEdit: () => ({
       model: evo(model, {
         maybeChatCommandEdit: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
     }),
     SubmittedChatCommandEdit: () => submitChatCommandEdit(model),
-    RequestedChatCommandStatus: requestChatCommandStatus(model),
-    RequestedChatCommandDeletion: ({ name }) => ({
+    ClickedChatCommandStatus: requestChatCommandStatus(model),
+    ClickedDeleteChatCommand: ({ name }) => ({
       model: evo(model, {
         maybePendingDeletion: () => Option.some(name),
         maybeChatCommandEdit: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
     }),
-    CancelledChatCommandDeletion: () => ({
+    ClickedKeepChatCommand: () => ({
       model: evo(model, {
         maybePendingDeletion: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
     }),
-    ConfirmedChatCommandDeletion: () => confirmChatCommandDeletion(model),
-    SucceededChatCommandWrite: () => settleWrite(model),
+    ClickedConfirmChatCommandDeletion: () => confirmChatCommandDeletion(model),
+    SucceededChatCommandWrite: () => completeWrite(model),
     FailedChatCommandWrite: refuseWrite(model),
   })
