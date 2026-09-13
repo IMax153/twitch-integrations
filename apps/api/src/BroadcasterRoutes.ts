@@ -1,6 +1,12 @@
 import type { BroadcasterResult } from "@twitch-integrations/domain/BroadcasterResult"
 import { ConnectionSummary } from "@twitch-integrations/domain/ConnectionSummary"
 import { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
+import { ChatCommandDraft, NewChatCommand } from "@twitch-integrations/domain/ChatCommand"
+import {
+  type DuplicateChatCommand,
+  InvalidChatCommandDraft,
+  type UnknownChatCommand,
+} from "@twitch-integrations/domain/ChatCommandErrors"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -8,6 +14,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Headers from "effect/unstable/http/Headers"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
@@ -185,12 +192,97 @@ const reconcileChannel = Effect.gen(function* () {
   )
 })
 
+/** A write whose body is not JSON at all: the page always sends JSON, so this is a stray form post. */
+class UnsupportedBody extends Schema.TaggedError<UnsupportedBody>()("UnsupportedBody", {}) {}
+
+/** A small JSON body the Broadcaster Page shows next to its form. */
+const rejection = (status: number, message: string) =>
+  HttpServerResponse.jsonUnsafe({ message }, { status })
+
+const isJsonRequest = (request: HttpServerRequest.HttpServerRequest): boolean =>
+  Option.getOrElse(Headers.get(request.headers, "content-type"), () => "")
+    .split(";", 1)[0]
+    ?.trim() === "application/json"
+
+/**
+ * Reads a Chat Command write's body through `schema`. Only `application/json`
+ * is read: with the same-origin page and the Access cookie, refusing every
+ * other content type is what keeps a cross-site form from writing. A body
+ * that is not JSON, or JSON the schema refuses, is an invalid draft.
+ */
+const readDraft = <A, RD>(schema: Schema.ConstraintDecoder<A, RD>) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest
+    if (!isJsonRequest(request)) {
+      return yield* UnsupportedBody.make()
+    }
+    return yield* HttpServerRequest.schemaBodyJson(schema).pipe(
+      Effect.mapError((error) =>
+        InvalidChatCommandDraft.make({
+          message:
+            error._tag === "SchemaError" ? error.message : "The body could not be read as JSON.",
+        }),
+      ),
+    )
+  })
+
+/**
+ * Maps each way a Chat Command write can be refused to its status. The
+ * Channel's rejections arrive over the RPC as plain objects, so they are
+ * matched on `_tag`.
+ */
+const answerRejections = <R>(
+  self: Effect.Effect<
+    HttpServerResponse.HttpServerResponse,
+    UnsupportedBody | InvalidChatCommandDraft | DuplicateChatCommand | UnknownChatCommand,
+    R
+  >,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
+  Effect.catchTags(self, {
+    UnsupportedBody: () => Effect.succeed(rejection(415, "Send the Chat Command as JSON.")),
+    InvalidChatCommandDraft: ({ message }) => Effect.succeed(rejection(400, message)),
+    DuplicateChatCommand: ({ name }) =>
+      Effect.succeed(
+        rejection(
+          409,
+          `A Chat Command named ${name} already exists; names are compared without regard to case.`,
+        ),
+      ),
+    UnknownChatCommand: ({ name }) =>
+      Effect.succeed(rejection(404, `No Chat Command is named ${name}.`)),
+  })
+
+const createChatCommandResponse = Effect.gen(function* () {
+  const draft = yield* readDraft(NewChatCommand)
+  const channel = yield* Channel
+  const created = yield* channel.createChatCommand(draft)
+  return HttpServerResponse.jsonUnsafe(created, { status: 201 })
+}).pipe(answerRejections)
+
+const updateChatCommandResponse = Effect.gen(function* () {
+  const { name } = yield* HttpRouter.params
+  const draft = yield* readDraft(ChatCommandDraft)
+  const channel = yield* Channel
+  const edited = yield* channel.updateChatCommand(name ?? "", draft)
+  return HttpServerResponse.jsonUnsafe(edited)
+}).pipe(answerRejections)
+
+const deleteChatCommandResponse = Effect.gen(function* () {
+  const { name } = yield* HttpRouter.params
+  const channel = yield* Channel
+  yield* channel.deleteChatCommand(name ?? "")
+  return HttpServerResponse.empty({ status: 204 })
+}).pipe(answerRejections)
+
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
 // `Connections` and `Channel` the surrounding Worker or test harness supplies.
 const routes = Layer.mergeAll(
   HttpRouter.add("GET", "/setup/api/connections", connectionsResponse),
   HttpRouter.add("GET", "/setup/api/channel", channelResponse),
+  HttpRouter.add("POST", "/setup/api/chat-commands", createChatCommandResponse),
+  HttpRouter.add("PUT", "/setup/api/chat-commands/:name", updateChatCommandResponse),
+  HttpRouter.add("DELETE", "/setup/api/chat-commands/:name", deleteChatCommandResponse),
   HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
   HttpRouter.add("GET", "/oauth/:provider/callback", callbackResponse),
 ).pipe(
