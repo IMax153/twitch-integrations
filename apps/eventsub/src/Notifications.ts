@@ -32,10 +32,26 @@ const RedemptionAddEvent = Schema.Struct({
   redeemed_at: Schema.String,
 }).annotate({ identifier: "RedemptionAddEvent" })
 
+/**
+ * The chat message event as Twitch sends it, read into a ChatMessage. Only
+ * the text is kept of the message: fragments, badges, and the rest are not
+ * the Channel's concern. The source broadcaster is null outside shared chat.
+ */
+const ChatMessageEvent = Schema.Struct({
+  message_id: Schema.String,
+  broadcaster_user_id: Schema.String,
+  chatter_user_id: Schema.String,
+  chatter_user_login: Schema.String,
+  chatter_user_name: Schema.String,
+  message: Schema.Struct({ text: Schema.String }).annotate({ identifier: "ChatMessageText" }),
+  source_broadcaster_user_id: Schema.String.pipe(Schema.NullOr, Schema.optional),
+}).annotate({ identifier: "ChatMessageEvent" })
+
 const decodeNotificationBody = Schema.decodeUnknownOption(Schema.fromJsonString(NotificationBody))
 const decodeRevocationBody = Schema.decodeUnknownOption(Schema.fromJsonString(RevocationBody))
 const decodeType = Schema.decodeUnknownOption(EventSubscriptionType)
 const decodeRedemptionAdd = Schema.decodeUnknownOption(RedemptionAddEvent)
+const decodeChatMessage = Schema.decodeUnknownOption(ChatMessageEvent)
 const decodeRedeemedAt = Schema.decodeUnknownOption(Redemption.fields.redeemedAt)
 
 /** The event of a notification of a known type, or none when the body is not the event that type carries. */
@@ -59,6 +75,17 @@ const eventOf = (type: EventSubscriptionType, event: unknown): Option.Option<Not
           },
         })),
       )
+    case "channel.chat.message":
+      return Option.map(decodeChatMessage(event), (wire) => ({
+        _tag: "ChatMessage",
+        messageId: wire.message_id,
+        broadcasterUserId: wire.broadcaster_user_id,
+        chatterUserId: wire.chatter_user_id,
+        chatterLogin: wire.chatter_user_login,
+        chatterDisplayName: wire.chatter_user_name,
+        text: wire.message.text,
+        sourceBroadcasterUserId: Option.fromNullishOr(wire.source_broadcaster_user_id),
+      }))
   }
 }
 
@@ -73,7 +100,7 @@ export type Parsed =
 
 const malformed: Parsed = { _tag: "Malformed" }
 
-/** A notification body, parsed for the Channel once its subscription type is one of the three the deployment keeps. */
+/** A notification body, parsed for the Channel once its subscription type is one of the four the deployment keeps. */
 export const parseNotification = (messageId: string, body: string): Parsed =>
   Option.match(decodeNotificationBody(body), {
     onNone: () => malformed,

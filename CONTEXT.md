@@ -55,7 +55,7 @@ A registration with Twitch EventSub asking for one kind of notification about th
 _Avoid_: Subscription, listener, webhook
 
 **Notification**:
-One message Twitch delivered through an Event Subscription and the receiver verified: the stream going online or offline, a Redemption, or a revocation of the Event Subscription itself. Twitch may resend one under the same message ID, and the Channel acts on each message ID once.
+One message Twitch delivered through an Event Subscription and the receiver verified: the stream going online or offline, a Redemption, a line of chat, or a revocation of the Event Subscription itself. Twitch may resend one under the same message ID, and the Channel acts on each message ID once.
 _Avoid_: Event, webhook, payload, message (for the domain concept)
 
 ### Rewards and redemptions

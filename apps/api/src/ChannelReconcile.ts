@@ -4,6 +4,7 @@ import type {
   ReauthorizationRequired,
 } from "@twitch-integrations/domain/ConnectionErrors"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
+import { requiredChatScopes } from "@twitch-integrations/domain/ChatCommand"
 import type { HeldRedemption } from "@twitch-integrations/domain/Redemption"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as Context from "effect/Context"
@@ -41,8 +42,8 @@ export interface ChannelReconcileService {
 }
 
 /**
- * The three Event Subscriptions the deployment keeps, about the Connected
- * Account's channel and, for Redemptions, the Reward alone.
+ * The three Event Subscriptions the deployment always keeps, about the
+ * Connected Account's channel and, for Redemptions, the Reward alone.
  */
 const eventSubscriptionRequests = (
   connectedAccountId: string,
@@ -64,6 +65,26 @@ const eventSubscriptionRequests = (
     condition: { broadcaster_user_id: connectedAccountId },
   },
 ]
+
+/**
+ * The fourth, for Chat Commands: the Connected Account's chat, read with
+ * the Connected Account's own grant, so `user_id` is the same account.
+ */
+const chatEventSubscriptionRequest = (connectedAccountId: string): EventSubscriptionRequest => ({
+  type: "channel.chat.message",
+  version: "1",
+  condition: { broadcaster_user_id: connectedAccountId, user_id: connectedAccountId },
+})
+
+/**
+ * Whether the Twitch Connection may read chat over the webhook receiver.
+ * Twitch requires `user:read:chat`, `user:bot`, and `channel:bot` on the
+ * Connected Account's token for `channel.chat.message` with an app access
+ * token; see `docs/research/twitch-chat-message-eventsub.md`. An older
+ * authorization lacks the bot scopes until the Broadcaster connects again.
+ */
+const mayReadChat = (scopes: ReadonlyArray<string>) =>
+  requiredChatScopes.every((scope) => scopes.includes(scope))
 
 /**
  * Whether Twitch answered a Redemption update with its "not found or not
@@ -151,31 +172,43 @@ const make = Effect.gen(function* () {
     return reward
   })
 
-  /** Deletes every Event Subscription this client ID owns and creates the three afresh. */
+  /**
+   * Deletes every Event Subscription this client ID owns and creates the
+   * three afresh, and the chat one too once the Twitch Connection carries
+   * the scopes it needs; the other three work either way.
+   */
   const replaceEventSubscriptions = Effect.fn("ChannelReconcile.replaceEventSubscriptions")(
-    function* (account: string, rewardId: string) {
+    function* ({ account, scopes }: TwitchAccessGrant, rewardId: string) {
       if (!transport.enabled) {
         yield* Effect.logInfo("Skipping Event Subscriptions under alchemy dev")
         return
+      }
+      const requests = [...eventSubscriptionRequests(account, rewardId)]
+      if (mayReadChat(scopes)) {
+        requests.push(chatEventSubscriptionRequest(account))
+      } else {
+        yield* Effect.logWarning(
+          `Skipping the chat Event Subscription: the Twitch Connection lacks ${requiredChatScopes
+            .filter((scope) => !scopes.includes(scope))
+            .join(", ")}; connect Twitch again to grant them`,
+        )
       }
       const token = yield* appToken.get
       const existing = yield* helix.listEventSubscriptions(token)
       yield* Effect.forEach(existing, (subscription) =>
         helix.deleteEventSubscription(token, subscription.id),
       )
-      const created = yield* Effect.forEach(
-        eventSubscriptionRequests(account, rewardId),
-        (request) =>
-          Effect.map(
-            helix.createEventSubscription(token, request, transport),
-            (subscription): EventSubscription => ({
-              id: subscription.id,
-              type: request.type,
-              version: subscription.version,
-              status: subscription.status,
-              revocationReason: Option.none(),
-            }),
-          ),
+      const created = yield* Effect.forEach(requests, (request) =>
+        Effect.map(
+          helix.createEventSubscription(token, request, transport),
+          (subscription): EventSubscription => ({
+            id: subscription.id,
+            type: request.type,
+            version: subscription.version,
+            status: subscription.status,
+            revocationReason: Option.none(),
+          }),
+        ),
       )
       yield* store.replaceEventSubscriptions(created)
       yield* Effect.logInfo(
@@ -198,7 +231,7 @@ const make = Effect.gen(function* () {
       const grant = yield* access.current
       yield* settleHeldRedemptions(grant)
       const reward = yield* ensureReward(grant)
-      yield* replaceEventSubscriptions(grant.account, reward.id)
+      yield* replaceEventSubscriptions(grant, reward.id)
       const state = yield* seedState(grant)
       yield* pause.applyState(grant, reward, state)
     }),

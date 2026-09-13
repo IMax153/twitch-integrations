@@ -4,14 +4,20 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Twitch scopes include `user:bot` and `channel:bot`; the reconcile creates the chat Event Subscription only with the scopes present, and the fake EventSub endpoint shows which were requested in each case
-- [ ] The receiver decodes `channel.chat.message` and hands it to the Channel; an unknown type is still acknowledged without reaching the Channel
-- [ ] Driving the signed receiver end to end: an exact `!today` gets a threaded reply at the fake chat endpoint; `!Today`, a Disabled command, a command in Cooldown, and a shared chat source get nothing and store nothing
-- [ ] A resend of an answered message ID is acknowledged and not answered again
-- [ ] A drop with `is_sent` false and a Twitch Connection that is Reauthorization Required are logged and leave no Cooldown, so the next Invocation is answered
-- [ ] The README records the Twitch CLI command that triggers a chat message against the local receiver
-- [ ] `docs/research/twitch-chat-message-eventsub.md` is cited where the scope rule is enforced
+- [x] Twitch scopes include `user:bot` and `channel:bot`; the reconcile creates the chat Event Subscription only with the scopes present, and the fake EventSub endpoint shows which were requested in each case
+- [x] The receiver decodes `channel.chat.message` and hands it to the Channel; an unknown type is still acknowledged without reaching the Channel
+- [x] Driving the signed receiver end to end: an exact `!today` gets a threaded reply at the fake chat endpoint; `!Today`, a Disabled command, a command in Cooldown, and a shared chat source get nothing and store nothing
+- [x] A resend of an answered message ID is acknowledged and not answered again
+- [x] A drop with `is_sent` false and a Twitch Connection that is Reauthorization Required are logged and leave no Cooldown, so the next Invocation is answered
+- [x] The README records the Twitch CLI command that triggers a chat message against the local receiver
+- [x] `docs/research/twitch-chat-message-eventsub.md` is cited where the scope rule is enforced
 
 ## Comments
+
+Implemented on 2026-09-13. The Twitch scope list gains `user:bot` and `channel:bot`; `TwitchAccessGrant` now carries the Connection's granted scopes, and the reconcile in `apps/api/src/ChannelReconcile.ts` appends the `channel.chat.message` request only when `requiredChatScopes` are all present, logging the missing ones otherwise; the research doc is cited at that rule. The receiver decodes the chat event in `apps/eventsub/src/Notifications.ts`; `ChannelReceive.act` now returns what is owed after the lock, which for an answered Invocation is the threaded reply, sent through `Helix.sendChatMessage` with a new `replyTo` option before the receiver acknowledges. A failed send, a dropped reply, or a Twitch Connection with no token clears `cooldownUntil` under the lock, leaving `lastAnsweredAt` as the spec says. Tests: the reconcile with and without the chat scopes in `ChannelObject.test.ts`, and the receiver driven end to end for every case in `EventSubRoutes.test.ts`. `vp check` and the full suite pass.
+
+Five things the next tickets should know. First, `ChatMessage` carries `broadcasterUserId` beside the spec's fields: the shared chat rule compares `source_broadcaster_user_id` to the subscription's broadcaster rather than asking the Twitch Connection for its account, so a line from another channel is ignored without a token call, and a line whose source is the Broadcaster's own channel is answered. Second, the Twitch CLI (1.1.25) does not know `channel.chat.message`, so the spec's local development note did not work; `apps/eventsub/scripts/chat-message.ts` signs and sends one instead, and the README and the spec's note now record it. It was run against `alchemy dev` from this worktree: the receiver answered 204 and, unlike a deliberately malformed body, logged no decode warning; the reply itself was not exercised because the routes from ticket 03 do not exist yet to define a Chat Command. Third, the receiver's body bound rose from 16 KB to 64 KB: a chat notification repeats its text once per fragment with an emote record beside each, so a line of emote spam can pass 16 KB, and a 413 would count as a failed delivery against the chat Event Subscription. Fourth, ADR 0003's consequence that the receiver acknowledges before any slow work now names the chat reply as its one exception, since the spec sends the reply before the acknowledgement. Fifth, Song Request readiness on the page iterated every `EventSubscriptionType`, which now includes the chat one, so it names its own three explicitly; the readiness tests caught this.
+
+One thing left as the spec says but worth a thought: a reply that Twitch dropped still leaves `lastAnsweredAt` set, so the page will show an answer time for a reply nobody saw.
