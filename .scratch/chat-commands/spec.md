@@ -93,7 +93,7 @@ A Chat Command is a named, fixed-text reply the Broadcaster defines on the Broad
 
 ### Local development
 
-- `twitch event trigger channel.chat.message -F http://127.0.0.1:1338/eventsub/twitch -s "$TWITCH_EVENTSUB_SECRET"` drives the receiver; the CLI's payload can be edited to carry a `!today` text. The local Channel skips the chat Event Subscription as it skips the others.
+- The Twitch CLI (1.1.25) cannot trigger `channel.chat.message`, so `node --env-file=.env apps/eventsub/scripts/chat-message.ts '!today'` signs and sends one to the local receiver instead (ticket 04 found this). The local Channel skips the chat Event Subscription as it skips the others.
 
 ## Testing decisions
 

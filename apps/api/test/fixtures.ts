@@ -1,4 +1,11 @@
 import type { AuthorizationAttempt } from "@twitch-integrations/domain/AuthorizationAttempt"
+import {
+  type ChatCommand,
+  ChatCommandName,
+  ChatCommandResponse,
+  defaultCooldown,
+  requiredChatScopes,
+} from "@twitch-integrations/domain/ChatCommand"
 import type { Connection } from "@twitch-integrations/domain/Connection"
 import type { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
 import { type Reward, songRequestSettings } from "@twitch-integrations/domain/Reward"
@@ -79,6 +86,16 @@ export const songRequestReward: Reward = {
   isPaused: false,
 }
 
+/** An Enabled Chat Command with the default Cooldown that has never answered. */
+export const chatCommandOf = (name: string, response = `the ${name} response`): ChatCommand => ({
+  name: ChatCommandName.make(name),
+  response: ChatCommandResponse.make(response),
+  status: "Enabled",
+  cooldown: defaultCooldown,
+  cooldownUntil: Option.none(),
+  lastAnsweredAt: Option.none(),
+})
+
 /** The three Event Subscriptions the deployment keeps, as Twitch reported them enabled. */
 export const storedSubscriptions: ReadonlyArray<EventSubscription> = [
   {
@@ -109,6 +126,12 @@ export const twitchConnection: Connection = {
   ...authorizedConnection,
   scopes: ["channel:manage:redemptions", "user:write:chat"],
   connectedAccount: { id: "twitch-user-1", displayName: "max" },
+}
+
+/** The Twitch Connection authorized again after this feature deployed, so it carries the chat scopes too. */
+export const twitchConnectionWithChat: Connection = {
+  ...twitchConnection,
+  scopes: [...twitchConnection.scopes, ...requiredChatScopes],
 }
 
 /** A Redemption of the reward with the ID, which may or may not be the Reward's, with the input the viewer typed. */

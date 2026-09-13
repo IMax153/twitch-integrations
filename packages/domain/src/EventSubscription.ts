@@ -1,10 +1,11 @@
 import * as Schema from "effect/Schema"
 
-/** The three kinds of notification the deployment asks Twitch EventSub for. */
+/** The four kinds of notification the deployment asks Twitch EventSub for. */
 export const EventSubscriptionType = Schema.Literals([
   "channel.channel_points_custom_reward_redemption.add",
   "stream.online",
   "stream.offline",
+  "channel.chat.message",
 ]).annotate({ identifier: "EventSubscriptionType" })
 export type EventSubscriptionType = typeof EventSubscriptionType.Type
 

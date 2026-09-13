@@ -14,6 +14,8 @@ export interface TwitchAccessGrant {
   readonly token: AccessToken
   /** The Twitch Connected Account's ID, which Helix names as the broadcaster. */
   readonly account: string
+  /** The scopes the Connection's authorization granted, which decide what may be asked of Twitch. */
+  readonly scopes: ReadonlyArray<string>
 }
 
 export interface TwitchAccessService {
@@ -32,7 +34,7 @@ const make = Effect.gen(function* () {
     if (summary.connectedAccount === null) {
       return yield* ConnectionNotConfigured.make({ provider: "twitch" })
     }
-    return { token, account: summary.connectedAccount.id }
+    return { token, account: summary.connectedAccount.id, scopes: summary.scopes }
   })
   return TwitchAccess.of({ current })
 })

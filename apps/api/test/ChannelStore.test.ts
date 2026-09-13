@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
 import {
+  chatCommandOf,
   heldRedemptionOf,
   redemptionOf,
   songRequestReward,
@@ -140,6 +141,41 @@ describe("ChannelStore held Redemptions", () => {
           held("redemption-1"),
           held("redemption-2"),
         ])
+      }),
+    ),
+  )
+})
+
+describe("ChannelStore chat commands", () => {
+  it.effect("lists Chat Commands by name and finds one by any casing of its name", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* store.readChatCommands, [])
+        yield* store.writeChatCommand(chatCommandOf("today"))
+        yield* store.writeChatCommand(chatCommandOf("Discord"))
+        assert.deepStrictEqual(yield* store.readChatCommands, [
+          chatCommandOf("Discord"),
+          chatCommandOf("today"),
+        ])
+        assert.deepStrictEqual(
+          yield* store.readChatCommand("TODAY"),
+          Option.some(chatCommandOf("today")),
+        )
+        assert.deepStrictEqual(yield* store.readChatCommand("tomorrow"), Option.none())
+      }),
+    ),
+  )
+
+  it.effect("replaces a Chat Command written again under its name and forgets a deleted one", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        yield* store.writeChatCommand(chatCommandOf("today"))
+        yield* store.writeChatCommand({ ...chatCommandOf("today", "Rust"), status: "Disabled" })
+        assert.deepStrictEqual(yield* store.readChatCommands, [
+          { ...chatCommandOf("today", "Rust"), status: "Disabled" },
+        ])
+        yield* store.deleteChatCommand("Today")
+        assert.deepStrictEqual(yield* store.readChatCommands, [])
       }),
     ),
   )

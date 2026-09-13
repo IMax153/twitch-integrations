@@ -209,6 +209,10 @@ export const twitch: ProviderDescription = {
     "user:read:chat",
     "user:write:chat",
     "moderator:manage:shoutouts",
+    // Reading chat over the webhook receiver needs the two bot scopes beside
+    // `user:read:chat`; see `docs/research/twitch-chat-message-eventsub.md`.
+    "user:bot",
+    "channel:bot",
   ],
   identityEndpoint: "https://id.twitch.tv/oauth2/validate",
   identityScheme: "OAuth",

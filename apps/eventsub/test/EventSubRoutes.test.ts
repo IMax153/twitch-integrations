@@ -8,6 +8,7 @@ import * as TestClock from "effect/testing/TestClock"
 import { testTransport } from "../../api/test/BroadcasterHarness.ts"
 import {
   authorizedConnection,
+  chatCommandOf,
   manageableSongRequest,
   neverGonnaId,
   songRequestReward,
@@ -166,6 +167,59 @@ const redemptionBody = (rewardId: string, input = "spotify:track:abc") =>
     },
   })
 
+/** How a chat message differs from a viewer typing in the Broadcaster's own chat. */
+interface ChatMessageOptions {
+  /** The chatter, the viewer unless the test says otherwise. */
+  readonly chatter?: { readonly id: string; readonly login: string; readonly name: string }
+  /** The channel the line was typed in during shared chat; null outside one. */
+  readonly sourceBroadcasterId?: string | null
+}
+
+const viewer = { id: "viewer-1", login: "viewer", name: "Viewer" }
+
+/** A chat message notification's body as Twitch sends it, with the text the chatter typed. */
+const chatBody = (text: string, options: ChatMessageOptions = {}) => {
+  const chatter = options.chatter ?? viewer
+  return JSON.stringify({
+    subscription: {
+      id: "sub-chat",
+      type: "channel.chat.message",
+      version: "1",
+      status: "enabled",
+      cost: 0,
+      condition: { broadcaster_user_id: "twitch-user-1", user_id: "twitch-user-1" },
+      transport: { method: "webhook", callback: testTransport.callback },
+      created_at: "2026-09-11T11:00:00Z",
+    },
+    event: {
+      broadcaster_user_id: "twitch-user-1",
+      broadcaster_user_login: "max",
+      broadcaster_user_name: "max",
+      source_broadcaster_user_id: options.sourceBroadcasterId ?? null,
+      source_broadcaster_user_login: null,
+      source_broadcaster_user_name: null,
+      chatter_user_id: chatter.id,
+      chatter_user_login: chatter.login,
+      chatter_user_name: chatter.name,
+      message_id: "chat-msg-1",
+      source_message_id: null,
+      is_source_only: null,
+      message: {
+        text,
+        fragments: [{ type: "text", text, cheermote: null, emote: null, mention: null }],
+      },
+      color: "#FF0000",
+      badges: [],
+      source_badges: null,
+      message_type: "text",
+      cheer: null,
+      reply: null,
+      channel_points_custom_reward_id: null,
+      channel_points_animation_id: null,
+    },
+  })
+}
+
 /** A revocation's body: the subscription with the reason as its status. */
 const revocationBody = (subscriptionId: string, reason: string) =>
   JSON.stringify({
@@ -290,20 +344,20 @@ describe("the receiver", () => {
     )
   }
 
-  it.effect("refuses a body declared larger than 16 KB with 413 before reading it", () =>
+  it.effect("refuses a body declared larger than 64 KB with 413 before reading it", () =>
     Effect.gen(function* () {
-      const { request, wasPulled } = unreadBody(16 * 1024 + 1)
+      const { request, wasPulled } = unreadBody(64 * 1024 + 1)
       const response = yield* send(request)
       yield* assertEmpty(response, 413)
       assert.isFalse(wasPulled())
     }),
   )
 
-  it.effect("refuses a body over 16 KB that declared no length once it is read", () =>
+  it.effect("refuses a body over 64 KB that declared no length once it is read", () =>
     Effect.gen(function* () {
       const request = yield* signedRequest({
         type: "notification",
-        body: "x".repeat(16 * 1024 + 1),
+        body: "x".repeat(64 * 1024 + 1),
       })
       assert.isNull(request.headers.get("content-length"))
       yield* assertEmpty(yield* send(request), 413)
@@ -570,6 +624,184 @@ describe("the receiver and the Channel", () => {
           sender_id: "twitch-user-1",
           message: "@Viewer added Never Gonna Give You Up by Rick Astley to the queue.",
         })
+      }).pipe(Effect.scoped),
+  )
+})
+
+/** The world Offline with Twitch authorized and one Enabled Chat Command, `!today`, that has never answered. */
+const worldWithChatCommand = Effect.fnUntraced(function* () {
+  const world = yield* worldWithReward(false)
+  yield* world.channelStore.writeChatCommand(chatCommandOf("today", "Building Chat Commands"))
+  return world
+})
+
+/** Sends the chat line as Twitch would and asserts the receiver acknowledged it. */
+const chat = Effect.fnUntraced(function* (
+  world: ReceiverWorld,
+  text: string,
+  options: ChatMessageOptions & { readonly messageId?: string } = {},
+) {
+  const request = yield* signedRequest({
+    type: "notification",
+    body: chatBody(text, options),
+    ...(options.messageId === undefined ? {} : { headers: { id: options.messageId } }),
+  })
+  yield* assertAccepted(yield* world.receive(request))
+})
+
+/** The chat messages Helix was asked to send, as their bodies. */
+const chatSends = (world: ReceiverWorld) =>
+  Effect.map(world.providers.twitchHelix.received, (requests) =>
+    requests.filter((request) => request.url === chatUrl).map((request) => request.json),
+  )
+
+/** The `!today` reply as Twitch receives it: threaded under the invoking message. */
+const todayReply = {
+  ...chatMessage("Building Chat Commands"),
+  reply_parent_message_id: "chat-msg-1",
+}
+
+/** What the `!today` Chat Command remembers, as the page reads it. */
+const todayTimes = (world: ReceiverWorld) =>
+  Effect.map(world.channel.describe(), ({ chatCommands }) => ({
+    cooldownUntil: chatCommands[0]?.cooldownUntil,
+    lastAnsweredAt: chatCommands[0]?.lastAnsweredAt,
+  }))
+
+describe("the receiver and a Chat Command", () => {
+  it.effect(
+    "an exact Invocation while Offline is answered in a thread and starts the Cooldown",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldWithChatCommand()
+        yield* chat(world, "!today")
+        assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+        assert.deepStrictEqual(yield* todayTimes(world), {
+          cooldownUntil: "2026-09-11T12:00:10.000Z",
+          lastAnsweredAt: "2026-09-11T12:00:00.000Z",
+        })
+      }).pipe(Effect.scoped),
+  )
+
+  it.effect("the Broadcaster's own Invocation is answered", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* chat(world, "  !today ", {
+        chatter: { id: "twitch-user-1", login: "max", name: "max" },
+      })
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a line that is not exactly the name is ignored and stores nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* chat(world, "!Today", { messageId: "message-case" })
+      yield* chat(world, "!today please", { messageId: "message-words" })
+      yield* chat(world, "today", { messageId: "message-bare" })
+      assert.deepStrictEqual(yield* chatSends(world), [])
+      assert.deepStrictEqual(yield* todayTimes(world), {
+        cooldownUntil: null,
+        lastAnsweredAt: null,
+      })
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-case"))
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-words"))
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-bare"))
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a Disabled Chat Command is ignored and stores nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* world.channelStore.writeChatCommand({
+        ...chatCommandOf("today", "Building Chat Commands"),
+        status: "Disabled",
+      })
+      yield* chat(world, "!today", { messageId: "message-disabled" })
+      assert.deepStrictEqual(yield* chatSends(world), [])
+      assert.deepStrictEqual(yield* todayTimes(world), {
+        cooldownUntil: null,
+        lastAnsweredAt: null,
+      })
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-disabled"))
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("an Invocation in Cooldown is ignored until the Cooldown ends", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* chat(world, "!today", { messageId: "message-first" })
+      yield* TestClock.adjust("9 seconds")
+      yield* chat(world, "!today", { messageId: "message-cooling" })
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-cooling"))
+      yield* TestClock.adjust("1 second")
+      yield* chat(world, "!today", { messageId: "message-again" })
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply, todayReply])
+      assert.deepStrictEqual(yield* todayTimes(world), {
+        cooldownUntil: "2026-09-11T12:00:20.000Z",
+        lastAnsweredAt: "2026-09-11T12:00:10.000Z",
+      })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a line from another channel in shared chat is ignored and stores nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* chat(world, "!today", {
+        sourceBroadcasterId: "other-channel",
+        messageId: "message-shared",
+      })
+      assert.deepStrictEqual(yield* chatSends(world), [])
+      assert.isFalse(yield* world.channelStore.hasSeenNotification("message-shared"))
+      // A line typed in the Broadcaster's own channel during shared chat is theirs to answer.
+      yield* chat(world, "!today", { sourceBroadcasterId: "twitch-user-1" })
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a resend of an answered Invocation is acknowledged and not answered again", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* chat(world, "!today", { messageId: "message-resent" })
+      yield* TestClock.adjust("1 minute")
+      yield* chat(world, "!today", { messageId: "message-resent" })
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a reply Twitch drops leaves no Cooldown, so the next Invocation is answered", () =>
+    Effect.gen(function* () {
+      const world = yield* worldWithChatCommand()
+      yield* world.providers.twitchHelix.set({
+        ...helixScenario,
+        chatSend: { _tag: "Dropped", code: "msg_rejected", message: "Your message was rejected." },
+      })
+      yield* chat(world, "!today")
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply])
+      assert.strictEqual((yield* todayTimes(world)).cooldownUntil, null)
+      yield* world.providers.twitchHelix.set(helixScenario)
+      yield* chat(world, "!today")
+      assert.deepStrictEqual(yield* chatSends(world), [todayReply, todayReply])
+      assert.strictEqual((yield* todayTimes(world)).cooldownUntil, "2026-09-11T12:00:10.000Z")
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "a Twitch Connection that is Reauthorization Required leaves no Cooldown, so the next Invocation is answered",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* worldWithChatCommand()
+        yield* world.stores.twitch.writeConnection({
+          ...twitchConnection,
+          status: "Reauthorization Required",
+        })
+        yield* chat(world, "!today")
+        assert.deepStrictEqual(yield* chatSends(world), [])
+        assert.strictEqual((yield* todayTimes(world)).cooldownUntil, null)
+        yield* world.stores.twitch.writeConnection(twitchConnection)
+        yield* chat(world, "!today")
+        assert.deepStrictEqual(yield* chatSends(world), [todayReply])
       }).pipe(Effect.scoped),
   )
 })

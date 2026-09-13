@@ -11,6 +11,6 @@ Reading chat with an app access token over webhooks requires the Broadcaster's t
 ## Consequences
 
 - The receiver's volume is now driven by viewers rather than by the Broadcaster. The zone rate-limiting rule from ADR 0002 counts a hundred requests per source address per colocation in ten seconds; Twitch spreads deliveries across addresses and this channel's chat is nowhere near that rate, but the rule is the first thing to revisit if chat Event Subscriptions start reporting failures.
-- The receiver still acknowledges before any slow work, and a chat line that invokes nothing is acknowledged without a write, so chat volume cannot fill storage.
+- A chat line that invokes nothing is acknowledged without a write, so chat volume cannot fill storage. The one reply an Invocation earns is the exception to acknowledging before slow work: it is one Helix call, sent after the Channel lock is released and before the receiver answers, so a resend under the same message ID can never produce a second reply.
 - The reconcile skips the chat Event Subscription, and logs that it did, while the Twitch Connection lacks the bot scopes, so an older authorization keeps Song Requests working and only Chat Commands wait.
 - The chat reply is sent as the Twitch Connected Account, as Song Request replies already are. There is no separate bot account.
