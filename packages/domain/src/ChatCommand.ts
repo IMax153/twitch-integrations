@@ -76,6 +76,7 @@ export const ChatCommand = Schema.Struct({
   lastAnsweredAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromString),
 }).annotate({ identifier: "ChatCommand" })
 export type ChatCommand = typeof ChatCommand.Type
+export type ChatCommandEncoded = typeof ChatCommand.Encoded
 
 /**
  * What the Broadcaster Page sends to edit a Chat Command: everything but the
@@ -89,6 +90,7 @@ export const ChatCommandDraft = Schema.Struct({
   status: ChatCommandStatus,
 }).annotate({ identifier: "ChatCommandDraft" })
 export type ChatCommandDraft = typeof ChatCommandDraft.Type
+export type ChatCommandDraftEncoded = typeof ChatCommandDraft.Encoded
 
 /**
  * What the Broadcaster Page sends to create a Chat Command: the name and the
@@ -102,6 +104,7 @@ export const NewChatCommand = Schema.Struct({
   status: ChatCommandStatus.pipe(Schema.withDecodingDefault(Effect.succeed("Enabled" as const))),
 }).annotate({ identifier: "NewChatCommand" })
 export type NewChatCommand = typeof NewChatCommand.Type
+export type NewChatCommandEncoded = typeof NewChatCommand.Encoded
 
 /**
  * Finds the Chat Command a chat message invokes: the one whose `!name` equals

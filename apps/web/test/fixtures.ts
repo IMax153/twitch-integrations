@@ -43,6 +43,7 @@ export const channel: ChannelMonitoring = {
   ],
   processing: { total: 0, items: [] },
   held: { total: 0, items: [] },
+  chatCommands: [],
 }
 
 export const notConfiguredConnections: ReadonlyArray<ConnectionSummary> = [

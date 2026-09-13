@@ -1,4 +1,5 @@
 import { ChannelState } from "@twitch-integrations/domain/ChannelState"
+import { ChatCommand } from "@twitch-integrations/domain/ChatCommand"
 import {
   type ChannelMonitoring,
   monitoringLimit,
@@ -50,6 +51,14 @@ export interface ChannelStoreService {
   readonly readHeldRedemptions: Effect.Effect<ReadonlyArray<HeldRedemption>>
   /** Forgets the held Redemption with the ID once it has been settled. */
   readonly releaseHeldRedemption: (redemptionId: string) => Effect.Effect<void>
+  /** Every Chat Command, ordered by its lowercased name. */
+  readonly readChatCommands: Effect.Effect<ReadonlyArray<ChatCommand>>
+  /** The Chat Command whose name matches without regard to case, or none. */
+  readonly readChatCommand: (name: string) => Effect.Effect<Option.Option<ChatCommand>>
+  /** Stores a Chat Command, replacing the one whose name matches without regard to case. */
+  readonly writeChatCommand: (command: ChatCommand) => Effect.Effect<void>
+  /** Forgets the Chat Command whose name matches without regard to case; one not stored is left unstored. */
+  readonly deleteChatCommand: (name: string) => Effect.Effect<void>
 }
 
 /**
@@ -81,6 +90,19 @@ const HeldRedemptionDocument = Schema.fromJsonString(HeldRedemption).annotate({
 })
 const decodeHeldRedemption = Schema.decodeEffect(HeldRedemptionDocument)
 const encodeHeldRedemption = Schema.encodeEffect(HeldRedemptionDocument)
+
+/**
+ * Each Chat Command is one JSON document in a row keyed by its lowercased
+ * name, which is what makes two names differing only by case one Chat
+ * Command.
+ */
+const ChatCommandDocument = Schema.fromJsonString(ChatCommand).annotate({
+  identifier: "ChatCommandDocument",
+})
+const decodeChatCommand = Schema.decodeEffect(ChatCommandDocument)
+const encodeChatCommand = Schema.encodeEffect(ChatCommandDocument)
+
+const chatCommandKey = (name: string) => name.toLowerCase()
 
 const decodeState = Schema.decodeUnknownEffect(ChannelState)
 
@@ -136,6 +158,12 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
         document TEXT NOT NULL
       )
     `
+  yield* sql`
+      CREATE TABLE IF NOT EXISTS chat_command (
+        name_key TEXT PRIMARY KEY,
+        document TEXT NOT NULL
+      )
+    `
 })
 
 const make = Effect.gen(function* () {
@@ -153,6 +181,7 @@ const make = Effect.gen(function* () {
         yield* sql<DocumentRow>`SELECT document FROM held_redemption ORDER BY position LIMIT ${monitoringLimit}`
       const queuedCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM redemption_queue`
       const heldCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM held_redemption`
+      const chatCommands = yield* store.readChatCommands
       return {
         observedAt: yield* DateTime.now,
         state,
@@ -166,6 +195,7 @@ const make = Effect.gen(function* () {
           total: heldCount[0]?.count ?? 0,
           items: yield* Effect.forEach(held, (row) => decodeHeldRedemption(row.document)),
         },
+        chatCommands,
       }
     }).pipe(sql.withTransaction, Effect.orDie),
 
@@ -290,6 +320,35 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.orDie,
       ),
+
+    readChatCommands: Effect.gen(function* () {
+      const rows = yield* sql<DocumentRow>`SELECT document FROM chat_command ORDER BY name_key`
+      return yield* Effect.forEach(rows, (row) => decodeChatCommand(row.document))
+    }).pipe(Effect.orDie),
+
+    readChatCommand: (name) =>
+      Effect.gen(function* () {
+        const rows =
+          yield* sql<DocumentRow>`SELECT document FROM chat_command WHERE name_key = ${chatCommandKey(name)}`
+        const row = rows[0]
+        return row === undefined
+          ? Option.none()
+          : Option.some(yield* decodeChatCommand(row.document))
+      }).pipe(Effect.orDie),
+
+    writeChatCommand: Effect.fn("ChannelStore.writeChatCommand")(function* (command: ChatCommand) {
+      const document = yield* encodeChatCommand(command)
+      yield* sql`
+        INSERT INTO chat_command (name_key, document) VALUES (${chatCommandKey(command.name)}, ${document})
+        ON CONFLICT (name_key) DO UPDATE SET document = excluded.document
+      `
+    }, Effect.orDie),
+
+    deleteChatCommand: (name) =>
+      sql`DELETE FROM chat_command WHERE name_key = ${chatCommandKey(name)}`.pipe(
+        Effect.asVoid,
+        Effect.orDie,
+      ),
   }
   return store
 })
@@ -297,7 +356,8 @@ const make = Effect.gen(function* () {
 /**
  * Persistence for the Channel: its Reward, its state, its Event
  * Subscriptions, the message IDs it has processed lately, its Processing
- * Queue, and the Redemptions it holds for the next reconcile, written against the generic `SqlClient` so the same code
+ * Queue, the Redemptions it holds for the next reconcile, and its Chat
+ * Commands, written against the generic `SqlClient` so the same code
  * runs over Durable Object storage in production and over an in-memory
  * database in tests. As in the Connection store, storage failures and
  * malformed rows are defects.

@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { ChannelState } from "./ChannelState.ts"
+import { ChatCommand } from "./ChatCommand.ts"
 import { EventSubscription } from "./EventSubscription.ts"
 import { HeldRedemption, Redemption } from "./Redemption.ts"
 import { Reward } from "./Reward.ts"
@@ -25,6 +26,8 @@ export const ChannelMonitoring = Schema.Struct({
   eventSubscriptions: Schema.Array(EventSubscription),
   processing: ProcessingOverview,
   held: HeldOverview,
+  /** Every Chat Command, small by construction and so unbounded. */
+  chatCommands: Schema.Array(ChatCommand),
 }).annotate({ identifier: "ChannelMonitoring" })
 export type ChannelMonitoring = typeof ChannelMonitoring.Type
 export type ChannelMonitoringEncoded = typeof ChannelMonitoring.Encoded

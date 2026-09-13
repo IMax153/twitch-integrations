@@ -5,8 +5,10 @@ import {
   type NotificationEncoded,
   type NotificationEvent,
 } from "@twitch-integrations/domain/Notification"
+import type { ChatCommandEncoded } from "@twitch-integrations/domain/ChatCommand"
 import { songRequestSettings } from "@twitch-integrations/domain/Reward"
 import * as DateTime from "effect/DateTime"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -23,6 +25,7 @@ import type { ReceivedRequest } from "./FakeApi.ts"
 import type { TwitchHelixScenario } from "./FakeProviders.ts"
 import {
   authorizedConnection,
+  chatCommandOf,
   heldRedemptionOf,
   manageableSongRequest,
   neverGonnaId,
@@ -906,6 +909,155 @@ describe("ChannelObject.reconcile with a held Redemption Twitch refuses to cance
       // Still held: the next reconcile tries again.
       yield* world.channel.reconcile()
       assert.lengthOf(yield* redemptionUpdates(world), 4)
+    }).pipe(Effect.scoped),
+  )
+})
+
+describe("ChannelObject chat commands", () => {
+  const noon = DateTime.makeUnsafe("2026-09-11T12:00:00Z")
+
+  const chatCommands = (world: BroadcasterWorld) =>
+    Effect.map(world.channel.describe(), (snapshot) => snapshot.chatCommands)
+
+  it.effect("creates a Chat Command that starts Enabled with a ten second Cooldown", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      const created = yield* world.channel.createChatCommand({
+        name: "today",
+        response: "Building the Chat Commands feature",
+      })
+      const expected: ChatCommandEncoded = {
+        name: "today",
+        response: "Building the Chat Commands feature",
+        status: "Enabled",
+        cooldown: 10_000,
+        cooldownUntil: null,
+        lastAnsweredAt: null,
+      }
+      assert.deepStrictEqual(created, expected)
+      assert.deepStrictEqual(yield* chatCommands(world), [expected])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("rejects a second Chat Command whose name differs only by case", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      yield* world.channel.createChatCommand({ name: "today", response: "one" })
+      const rejection = yield* Effect.flip(
+        world.channel.createChatCommand({ name: "Today", response: "two" }),
+      )
+      assert.strictEqual(rejection._tag, "DuplicateChatCommand")
+      assert.deepStrictEqual(
+        (yield* chatCommands(world)).map((command) => command.response),
+        ["one"],
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("rejects a draft the schema refuses without storing anything", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      const rejection = yield* Effect.flip(
+        world.channel.createChatCommand({ name: "to day", response: "x" }),
+      )
+      assert.strictEqual(rejection._tag, "InvalidChatCommandDraft")
+      yield* world.channel.createChatCommand({ name: "today", response: "x" })
+      const edit = yield* Effect.flip(
+        world.channel.updateChatCommand("today", {
+          response: "y".repeat(501),
+          cooldown: 10_000,
+          status: "Enabled",
+        }),
+      )
+      assert.strictEqual(edit._tag, "InvalidChatCommandDraft")
+      assert.deepStrictEqual(
+        (yield* chatCommands(world)).map((command) => command.response),
+        ["x"],
+      )
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("rejects editing or deleting a name it does not hold", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      const edit = yield* Effect.flip(
+        world.channel.updateChatCommand("today", {
+          response: "x",
+          cooldown: 10_000,
+          status: "Enabled",
+        }),
+      )
+      assert.deepStrictEqual([edit._tag, edit.name], ["UnknownChatCommand", "today"])
+      const deletion = yield* Effect.flip(world.channel.deleteChatCommand("today"))
+      assert.deepStrictEqual([deletion._tag, deletion.name], ["UnknownChatCommand", "today"])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("clears a running Cooldown on edit and keeps when it last answered", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      yield* at("2026-09-11T12:00:05Z")
+      yield* world.channelStore.writeChatCommand({
+        ...chatCommandOf("today", "old"),
+        cooldownUntil: Option.some(DateTime.addDuration(noon, Duration.seconds(10))),
+        lastAnsweredAt: Option.some(noon),
+      })
+      const edited = yield* world.channel.updateChatCommand("today", {
+        response: "new",
+        cooldown: 30_000,
+        status: "Enabled",
+      })
+      const expected: ChatCommandEncoded = {
+        name: "today",
+        response: "new",
+        status: "Enabled",
+        cooldown: 30_000,
+        cooldownUntil: null,
+        lastAnsweredAt: "2026-09-11T12:00:00.000Z",
+      }
+      assert.deepStrictEqual(edited, expected)
+      assert.deepStrictEqual(yield* chatCommands(world), [expected])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("treats enabling a Disabled Chat Command as an edit that ends its Cooldown", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      yield* at("2026-09-11T12:00:05Z")
+      yield* world.channelStore.writeChatCommand({
+        ...chatCommandOf("today"),
+        status: "Disabled",
+        cooldownUntil: Option.some(DateTime.addDuration(noon, Duration.seconds(10))),
+        lastAnsweredAt: Option.some(noon),
+      })
+      yield* world.channel.updateChatCommand("today", {
+        response: "the today response",
+        cooldown: 10_000,
+        status: "Enabled",
+      })
+      assert.deepStrictEqual(yield* chatCommands(world), [
+        {
+          name: "today",
+          response: "the today response",
+          status: "Enabled",
+          cooldown: 10_000,
+          cooldownUntil: null,
+          lastAnsweredAt: "2026-09-11T12:00:00.000Z",
+        },
+      ])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("deletes a Chat Command by any casing of its name", () =>
+    Effect.gen(function* () {
+      const world = yield* makeWorld()
+      yield* world.channel.createChatCommand({ name: "today", response: "x" })
+      yield* world.channel.createChatCommand({ name: "discord", response: "y" })
+      yield* world.channel.deleteChatCommand("TODAY")
+      assert.deepStrictEqual(
+        (yield* chatCommands(world)).map((command) => command.name),
+        ["discord"],
+      )
     }).pipe(Effect.scoped),
   )
 })
