@@ -7,8 +7,7 @@ import * as Schema from "effect/Schema"
  * The scopes the Twitch Connection must grant before the deployment can read
  * chat through the webhook receiver. Twitch requires `user:read:chat` from the
  * chatting user and, for an app access token, `user:bot` from that user and
- * `channel:bot` from the broadcaster; the Connected Account is both. The
- * reconcile skips the chat Event Subscription and the Broadcaster Page shows
+ * `channel:bot` from the broadcaster. The reconcile skips the chat Event Subscription and the Broadcaster Page shows
  * a notice while any of these is missing. See
  * `docs/research/twitch-chat-message-eventsub.md`.
  */
@@ -79,17 +78,30 @@ export const ChatCommand = Schema.Struct({
 export type ChatCommand = typeof ChatCommand.Type
 
 /**
- * What the Broadcaster Page sends to create or edit a Chat Command. The
- * common case needs only a response: a missing status means Enabled and a
- * missing Cooldown means ten seconds. The name travels beside the draft on
- * create and in the route on edit, since it is fixed at creation.
+ * What the Broadcaster Page sends to edit a Chat Command: everything but the
+ * name, which is fixed at creation and travels in the route. Every field is
+ * required so that an edit never re-enables or re-times a Chat Command the
+ * Broadcaster did not touch.
  */
 export const ChatCommandDraft = Schema.Struct({
   response: ChatCommandResponse,
-  cooldown: Cooldown.pipe(Schema.withDecodingDefault(Effect.succeed(defaultCooldownMillis))),
-  status: ChatCommandStatus.pipe(Schema.withDecodingDefault(Effect.succeed("Enabled" as const))),
+  cooldown: Cooldown,
+  status: ChatCommandStatus,
 }).annotate({ identifier: "ChatCommandDraft" })
 export type ChatCommandDraft = typeof ChatCommandDraft.Type
+
+/**
+ * What the Broadcaster Page sends to create a Chat Command: the name and the
+ * draft, where the common case needs only a name and a response. A missing
+ * status means Enabled and a missing Cooldown means ten seconds.
+ */
+export const NewChatCommand = Schema.Struct({
+  name: ChatCommandName,
+  response: ChatCommandResponse,
+  cooldown: Cooldown.pipe(Schema.withDecodingDefault(Effect.succeed(defaultCooldownMillis))),
+  status: ChatCommandStatus.pipe(Schema.withDecodingDefault(Effect.succeed("Enabled" as const))),
+}).annotate({ identifier: "NewChatCommand" })
+export type NewChatCommand = typeof NewChatCommand.Type
 
 /**
  * Finds the Chat Command a chat message invokes: the one whose `!name` equals
@@ -99,17 +111,12 @@ export type ChatCommandDraft = typeof ChatCommandDraft.Type
  */
 export const matchChatCommand = (
   text: string,
-  commands: Iterable<ChatCommand>,
+  commands: ReadonlyArray<ChatCommand>,
 ): Option.Option<ChatCommand> => {
   const trimmed = text.trim()
   if (!trimmed.startsWith("!")) {
     return Option.none()
   }
   const name = trimmed.slice(1)
-  for (const command of commands) {
-    if (command.name === name) {
-      return Option.some(command)
-    }
-  }
-  return Option.none()
+  return Option.fromNullishOr(commands.find((command) => command.name === name))
 }
