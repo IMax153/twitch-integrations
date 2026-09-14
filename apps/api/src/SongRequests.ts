@@ -29,6 +29,8 @@ export interface SongRequestsService {
    * fails: what cannot be done is logged.
    */
   readonly process: (redemption: Redemption) => Effect.Effect<void>
+  /** Retries only Twitch completion for songs already accepted by Spotify. Caller holds the Channel lock. */
+  readonly retryFulfilments: Effect.Effect<void>
 }
 
 /** Why the track was not queued, decided before any change is made on Twitch. */
@@ -95,6 +97,7 @@ const make = Effect.gen(function* () {
         notQueued(failure.detail === noActiveDevice ? "NothingPlaying" : "Failed"),
       ),
     )
+    yield* store.markSongQueued(redemption.id)
     return { token, trackId: input.trackId }
   })
 
@@ -169,8 +172,8 @@ const make = Effect.gen(function* () {
 
   /**
    * Fulfils the queued Redemption on Twitch and tells the viewer what was
-   * queued. A fulfil that keeps failing is given up on and the Redemption
-   * left unfulfilled, never cancelled: the viewer got their song.
+   * queued. A fulfil that keeps failing stays in the Processing Queue for
+   * recovery. It must never be cancelled because the viewer got their song.
    */
   const fulfil = Effect.fn("SongRequests.fulfil")(function* (
     redemption: Redemption,
@@ -182,10 +185,11 @@ const make = Effect.gen(function* () {
       Effect.retry(fulfilRetries),
       Effect.tapError(() =>
         Effect.logWarning(
-          `Left Redemption ${redemption.id} from ${redemption.viewerName} unfulfilled: Twitch kept refusing`,
+          `Kept Redemption ${redemption.id} from ${redemption.viewerName} for fulfilment: Twitch kept refusing`,
         ),
       ),
     )
+    yield* store.removeRedemption(redemption.id)
     yield* Effect.logInfo(`Fulfilled Redemption ${redemption.id}: queued ${track.description}`)
     yield* reply(grant, redemption, fulfilledReply(redemption.viewerName, track))
   })
@@ -202,7 +206,27 @@ const make = Effect.gen(function* () {
     },
   )
 
-  return SongRequests.of({ process })
+  const retryFulfilments = Effect.gen(function* () {
+    const pending = yield* store.readQueuedSongs
+    yield* Effect.forEach(pending, (redemption) =>
+      Effect.gen(function* () {
+        const grant = yield* access.current
+        const result = yield* Effect.result(end(grant, redemption, "FULFILLED"))
+        if (Result.isFailure(result)) {
+          // Twitch also returns 404 when a moderator or a previous attempt
+          // already ended the Redemption. Neither case should queue it again.
+          const reason = result.failure.reason
+          if (reason._tag !== "Status" || reason.status !== 404) {
+            return yield* result.failure
+          }
+        }
+        yield* store.removeRedemption(redemption.id)
+        yield* Effect.logInfo(`Settled queued Redemption ${redemption.id} during recovery`)
+      }).pipe(observed, Effect.ignore),
+    )
+  })
+
+  return SongRequests.of({ process, retryFulfilments })
 })
 
 /** The rules for one Song Request: what the spec says happens to a Redemption of the Reward. */

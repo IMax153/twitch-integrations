@@ -19,6 +19,7 @@ import { type EventSubscriptionRequest, Helix, type HelixRequestFailed } from ".
 import { logFailure } from "@twitch-integrations/infra/Failure"
 import type { ProviderRequestFailed } from "./Provider.ts"
 import { RewardPause } from "./RewardPause.ts"
+import { SongRequests } from "./SongRequests.ts"
 import { TwitchAccess, type TwitchAccessGrant } from "./TwitchAccess.ts"
 import { TwitchAppToken } from "./TwitchAppToken.ts"
 
@@ -108,6 +109,7 @@ const make = Effect.gen(function* () {
   const lock = yield* ChannelLock
   const access = yield* TwitchAccess
   const pause = yield* RewardPause
+  const songs = yield* SongRequests
   const settings = songRequestSettings
 
   /**
@@ -229,6 +231,7 @@ const make = Effect.gen(function* () {
   const reconcile: Effect.Effect<void, ReconcileError> = lock.withPermit(
     Effect.gen(function* () {
       const grant = yield* access.current
+      yield* songs.retryFulfilments
       yield* settleHeldRedemptions(grant)
       const reward = yield* ensureReward(grant)
       yield* replaceEventSubscriptions(grant, reward.id)
@@ -254,5 +257,6 @@ export class ChannelReconcile extends Context.Service<ChannelReconcile, ChannelR
     | ChannelLock
     | TwitchAccess
     | RewardPause
+    | SongRequests
   > = Layer.effect(ChannelReconcile)(make)
 }

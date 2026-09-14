@@ -794,7 +794,53 @@ const chatReplies = (world: BroadcasterWorld) =>
   )
 
 describe("ChannelObject.receive of a Song Request whose fulfil fails", () => {
-  it.effect("retries three times with a short wait each, then leaves it unfulfilled", () =>
+  for (const recovery of ["notification", "reconcile", "already ended"] as const) {
+    it.effect(`recovers fulfilment on ${recovery} without replaying Spotify`, () =>
+      Effect.gen(function* () {
+        const world = yield* worldLiveWithSpotify()
+        yield* world.providers.twitchHelix.set(
+          helixScenario({
+            manageableRewards: [manageableSongRequest],
+            redemptionUpdateRefusals: Infinity,
+          }),
+        )
+        yield* world.channel.receive(
+          notification("message-1", redemptionAdded("reward-1", trackLink(neverGonnaId))),
+        )
+        yield* TestClock.adjust("1500 millis")
+        yield* world.settled
+        // Another refusal retains the work, even during reconciliation.
+        yield* world.channel.reconcile()
+        assert.strictEqual((yield* world.channel.describe()).processing.total, 1)
+        yield* world.providers.twitchHelix.set(
+          helixScenario({
+            manageableRewards: [manageableSongRequest],
+            endedRedemptions: recovery === "already ended" ? ["redemption-1"] : [],
+          }),
+        )
+        // A queued song must be fulfilled even if the stream has since ended.
+        yield* world.channelStore.writeState("Offline")
+        if (recovery === "notification") {
+          yield* world.channel.receive(notification("message-1", redemptionAdded("reward-1")))
+          yield* world.settled
+        } else {
+          yield* world.channel.reconcile()
+        }
+        assert.deepStrictEqual(yield* queuedUris(world), [`spotify:track:${neverGonnaId}`])
+        assert.strictEqual((yield* world.channel.describe()).processing.total, 0)
+        const attempts = yield* redemptionUpdates(world)
+        assert.lengthOf(attempts, 6)
+        assert.isTrue(
+          attempts.every((request) => JSON.stringify(request.json) === '{"status":"FULFILLED"}'),
+        )
+        yield* world.rebuildChannel
+        yield* world.settled
+        assert.lengthOf(yield* redemptionUpdates(world), 6)
+      }).pipe(Effect.scoped),
+    )
+  }
+
+  it.effect("keeps a queued song for fulfilment after the short retries fail", () =>
     Effect.gen(function* () {
       const world = yield* worldLiveWithSpotify()
       yield* world.providers.twitchHelix.set(
@@ -825,10 +871,15 @@ describe("ChannelObject.receive of a Song Request whose fulfil fails", () => {
       )
       // Never cancelled: the viewer got their song. Nothing said in chat either.
       assert.deepStrictEqual(yield* chatReplies(world), [])
-      // The Redemption is done with: the next start does not try again.
+      assert.strictEqual((yield* world.channel.describe()).processing.total, 1)
+      yield* world.providers.twitchHelix.set(
+        helixScenario({ manageableRewards: [manageableSongRequest] }),
+      )
       yield* world.rebuildChannel
       yield* world.settled
-      assert.lengthOf(yield* redemptionUpdates(world), 4)
+      assert.lengthOf(yield* redemptionUpdates(world), 5)
+      assert.deepStrictEqual(yield* queuedUris(world), [`spotify:track:${neverGonnaId}`])
+      assert.strictEqual((yield* world.channel.describe()).processing.total, 0)
     }).pipe(Effect.scoped),
   )
 
