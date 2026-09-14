@@ -23,7 +23,7 @@ export interface RedemptionQueueService {
 const make = Effect.gen(function* () {
   const store = yield* ChannelStore
   const lock = yield* ChannelLock
-  const { process } = yield* SongRequests
+  const { process, retryFulfilments } = yield* SongRequests
   // Drains are forked into the layer's scope, which on the object lives as long as the instance.
   const scope = yield* Effect.scope
   /** One drain at a time; a kick while one runs waits its turn and then finds what was left. */
@@ -38,9 +38,12 @@ const make = Effect.gen(function* () {
       if (Option.isNone(next)) {
         return false
       }
-      // A defect in processing is logged and the Redemption dropped, so one bad Redemption never blocks the rest.
+      // Keep songs Spotify accepted for fulfilment recovery. Other processing
+      // defects are logged and dropped so they cannot block later Redemptions.
       yield* process(next.value).pipe(observed, Effect.ignoreCause)
-      yield* store.removeRedemption(next.value.id)
+      if (!(yield* store.hasQueuedSong(next.value.id))) {
+        yield* store.removeRedemption(next.value.id)
+      }
       return true
     }),
   )
@@ -58,7 +61,12 @@ const make = Effect.gen(function* () {
   const kick: RedemptionQueueService["kick"] = Effect.gen(function* () {
     yield* Ref.update(started, (count) => count + 1)
     yield* idle.close
-    yield* Effect.forkIn(draining.withPermits(1)(drain).pipe(Effect.ensuring(finished)), scope)
+    yield* Effect.forkIn(
+      draining
+        .withPermits(1)(Effect.andThen(lock.withPermit(retryFulfilments), drain))
+        .pipe(Effect.ensuring(finished)),
+      scope,
+    )
   })
 
   const enqueue: RedemptionQueueService["enqueue"] = Effect.fn("RedemptionQueue.enqueue")(

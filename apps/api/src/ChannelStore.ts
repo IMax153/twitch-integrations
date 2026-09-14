@@ -41,8 +41,12 @@ export interface ChannelStoreService {
   readonly forgetNotificationsBefore: (cutoff: DateTime.Utc) => Effect.Effect<void>
   /** Appends a Redemption to the Processing Queue; one already queued keeps its place. */
   readonly enqueueRedemption: (redemption: Redemption) => Effect.Effect<void>
-  /** The Redemption that has waited longest in the Processing Queue, or none while it is empty. */
+  /** The oldest Redemption whose song has not yet been queued. */
   readonly nextRedemption: Effect.Effect<Option.Option<Redemption>>
+  /** Records that Spotify accepted the song, so recovery only fulfils the Redemption. */
+  readonly markSongQueued: (redemptionId: string) => Effect.Effect<void>
+  readonly hasQueuedSong: (redemptionId: string) => Effect.Effect<boolean>
+  readonly readQueuedSongs: Effect.Effect<ReadonlyArray<Redemption>>
   /** Takes the Redemption with the ID out of the Processing Queue. */
   readonly removeRedemption: (redemptionId: string) => Effect.Effect<void>
   /** Keeps a Redemption that could not be cancelled until a reconcile settles it; one already held keeps its place. */
@@ -149,6 +153,11 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
         position INTEGER PRIMARY KEY AUTOINCREMENT,
         redemption_id TEXT NOT NULL UNIQUE,
         document TEXT NOT NULL
+      )
+    `
+  yield* sql`
+      CREATE TABLE IF NOT EXISTS queued_song (
+        redemption_id TEXT PRIMARY KEY
       )
     `
   yield* sql`
@@ -289,17 +298,38 @@ const make = Effect.gen(function* () {
     }, Effect.orDie),
 
     nextRedemption: Effect.gen(function* () {
-      const rows =
-        yield* sql<DocumentRow>`SELECT document FROM redemption_queue ORDER BY position LIMIT 1`
+      const rows = yield* sql<DocumentRow>`SELECT document FROM redemption_queue
+          WHERE redemption_id NOT IN (SELECT redemption_id FROM queued_song)
+          ORDER BY position LIMIT 1`
       const row = rows[0]
       return row === undefined ? Option.none() : Option.some(yield* decodeRedemption(row.document))
     }).pipe(Effect.orDie),
 
-    removeRedemption: (redemptionId) =>
-      sql`DELETE FROM redemption_queue WHERE redemption_id = ${redemptionId}`.pipe(
-        Effect.asVoid,
+    markSongQueued: (redemptionId) =>
+      sql`INSERT INTO queued_song (redemption_id) VALUES (${redemptionId})
+        ON CONFLICT (redemption_id) DO NOTHING`.pipe(Effect.asVoid, Effect.orDie),
+
+    hasQueuedSong: (redemptionId) =>
+      sql<CountRow>`SELECT COUNT(*) AS count FROM queued_song WHERE redemption_id = ${redemptionId}`.pipe(
+        Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
         Effect.orDie,
       ),
+
+    readQueuedSongs: Effect.gen(function* () {
+      const rows = yield* sql<DocumentRow>`SELECT document FROM redemption_queue
+        WHERE redemption_id IN (SELECT redemption_id FROM queued_song) ORDER BY position`
+      return yield* Effect.forEach(rows, (row) => decodeRedemption(row.document))
+    }).pipe(Effect.orDie),
+
+    removeRedemption: (redemptionId) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM queued_song WHERE redemption_id = ${redemptionId}`
+            yield* sql`DELETE FROM redemption_queue WHERE redemption_id = ${redemptionId}`
+          }),
+        )
+        .pipe(Effect.orDie),
 
     holdRedemption: Effect.fn("ChannelStore.holdRedemption")(function* (held: HeldRedemption) {
       const document = yield* encodeHeldRedemption(held)
