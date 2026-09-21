@@ -14,7 +14,12 @@ import type { HeldRedemption, Redemption } from "@twitch-integrations/domain/Red
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
-import type { ProviderScenario, SpotifyWebScenario, TokenGrant } from "./FakeProviders.ts"
+import type {
+  ProviderScenario,
+  SpotifyItemRecord,
+  SpotifyWebScenario,
+  TokenGrant,
+} from "./FakeProviders.ts"
 
 export const broadcaster: BroadcasterIdentity = {
   userUuid: "8d5c1a1e-4b7e-4d2b-9c1a-2f3e4d5c6b7a",
@@ -167,3 +172,34 @@ export const spotifyWithTracks = (
   account: { id: "spotify-user-1", displayName: "Max" },
   tracks,
 })
+
+/** Spotify's cover images for one album, in the three sizes it lists them. */
+export const coverImages = (id: string) => [
+  { url: `https://i.scdn.co/image/${id}-640`, width: 640 },
+  { url: `https://i.scdn.co/image/${id}-300`, width: 300 },
+  { url: `https://i.scdn.co/image/${id}-64`, width: 64 },
+]
+
+/** The track the fake player is on in most Overlay tests: three and a half minutes with cover images. */
+export const midnightCity: SpotifyItemRecord = {
+  name: "Midnight City",
+  artists: ["M83"],
+  durationMs: 244_000,
+  images: coverImages("midnight"),
+}
+
+/** Five queued tracks, one more than the Overlay shows, without cover images. */
+export const queuedTracks: ReadonlyArray<SpotifyItemRecord> = [
+  { name: "Everything In Its Right Place", artists: ["Radiohead"], durationMs: 251_000 },
+  { name: "Redbone", artists: ["Childish Gambino"], durationMs: 327_000 },
+  { name: "Nightcall", artists: ["Kavinsky", "Lovefoxxx"], durationMs: 258_000 },
+  { name: "Dreams", artists: ["Fleetwood Mac"], durationMs: 257_000 },
+  { name: "Blinding Lights", artists: ["The Weeknd"], durationMs: 200_000 },
+]
+
+/** The Spotify Web API accepting the stored Connection's token, playing Midnight City with the five tracks queued. */
+export const spotifyPlaying: SpotifyWebScenario = {
+  ...spotifyWithTracks(),
+  playback: { item: midnightCity, progressMs: 73_000, isPlaying: true },
+  queue: queuedTracks,
+}

@@ -35,3 +35,22 @@ export const eventSubPath = `${eventSubRoutePrefix}/twitch`
 
 /** The callback URL every Event Subscription names: the receiver on the shared hostname. */
 export const eventSubCallbackUrl = `https://${broadcasterHostname}${eventSubPath}`
+
+/**
+ * The path prefix the overlay Worker owns on the shared hostname: its
+ * route, and the path the zone rate limit counts beside the receiver's.
+ */
+export const overlayRoutePrefix = "/overlay"
+
+/** The one path an Overlay is served from; the Overlay Key travels in its query string. */
+export const nowPlayingOverlayPath = `${overlayRoutePrefix}/now-playing`
+
+/** The query parameter an Overlay's URL carries its Overlay Key in. */
+export const overlayKeyParameter = "key"
+
+/** The URL the Broadcaster pastes into OBS: the Overlay's path on the given origin, carrying the key. */
+export const nowPlayingOverlayUrl = (origin: string, key: string): string => {
+  const url = new URL(nowPlayingOverlayPath, origin)
+  url.searchParams.set(overlayKeyParameter, key)
+  return url.toString()
+}

@@ -1,5 +1,6 @@
 import { ChannelMonitoring } from "@twitch-integrations/domain/ChannelMonitoring"
 import { ChatCommandDraft } from "@twitch-integrations/domain/ChatCommand"
+import { IssuedOverlay } from "@twitch-integrations/domain/Overlay"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -141,5 +142,47 @@ export const DeleteChatCommand = Command.define("DeleteChatCommand", {
       // The Command is the browser HTTP entry point.
       // oxlint-disable-next-line effecttsgo/strict-effect-provide
       Effect.provide(Http.layer),
+    ),
+})
+
+const overlayKeyPath = "/setup/api/overlay-key"
+
+const overlayUnanswered =
+  "The Overlay URL could not be issued. Try again; if this continues, reload the page to check your Access session."
+
+const readIssuedOverlay = Schema.decodeUnknownEffect(IssuedOverlay)
+
+/**
+ * Asks the API for a fresh Overlay Key, which revokes the last one. The
+ * answer carries the whole browser source URL, the one time it is shown.
+ * An empty JSON body is sent so the API can tell the page's request from a
+ * cross-site form post.
+ */
+export const IssueOverlayKey = Command.define("IssueOverlayKey", {
+  messages: [Message.SucceededIssueOverlayKey, Message.FailedIssueOverlayKey],
+  execute: Effect.gen(function* () {
+    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+    const response = yield* client.execute(
+      HttpClientRequest.post(overlayKeyPath).pipe(HttpClientRequest.bodyJsonUnsafe({})),
+    )
+    const issued = yield* readIssuedOverlay(yield* response.json)
+    return Message.SucceededIssueOverlayKey({ url: issued.url })
+  }).pipe(
+    Effect.timeout(requestTimeoutMs),
+    Effect.orElseSucceed(() => Message.FailedIssueOverlayKey({ message: overlayUnanswered })),
+    // The Command is the browser HTTP entry point.
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide
+    Effect.provide(Http.layer),
+  ),
+})
+
+/** Puts the Overlay URL on the clipboard; a browser that refuses says so rather than failing the page. */
+export const CopyOverlayUrl = Command.define("CopyOverlayUrl", {
+  args: { url: Schema.String },
+  messages: [Message.CompletedCopyOverlayUrl],
+  execute: ({ url }) =>
+    Effect.tryPromise(() => navigator.clipboard.writeText(url)).pipe(
+      Effect.as(Message.CompletedCopyOverlayUrl({ isCopied: true })),
+      Effect.orElseSucceed(() => Message.CompletedCopyOverlayUrl({ isCopied: false })),
     ),
 })

@@ -103,3 +103,17 @@ _Avoid_: Trigger, call, request
 **Cooldown**:
 The period after a Chat Command answers during which further invocations of it are ignored without reply. Editing the Chat Command ends any Cooldown in progress.
 _Avoid_: Rate limit, throttle, debounce
+
+### Overlay
+
+**Overlay**:
+A page the Broadcaster adds to OBS as a browser source, served from the shared hostname by its own public Worker, showing what the Spotify Connected Account is playing and the next tracks in its queue. It shows nothing the Broadcaster Page does not already know except the queue itself, and holds no token.
+_Avoid_: Widget, browser source (for the page), now playing (for the page)
+
+**Overlay Key**:
+The secret in an Overlay's URL, which stands in for the Access login a browser source cannot hold. The Channel issues one at a time from the Broadcaster Page, keeps only its digest, shows it once, and revokes it when the Broadcaster rotates it.
+_Avoid_: Token, password, overlay URL (for the key alone)
+
+**Now Playing**:
+What the Overlay shows: the track Spotify is on, how far into it, whether it is paused, and the next four tracks in the queue, read from Spotify on demand and kept for a couple of seconds so several Overlays cost one read.
+_Avoid_: Player state, playback (for the whole), queue (alone)

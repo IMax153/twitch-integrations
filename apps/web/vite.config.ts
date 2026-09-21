@@ -3,6 +3,9 @@ import { defineConfig } from "vite-plus"
 
 const localWorker = "http://127.0.0.1:1337"
 
+/** The overlay Worker under `alchemy dev`, so an Overlay URL issued on the page's origin opens locally too. */
+const localOverlayWorker = "http://127.0.0.1:1339"
+
 /**
  * The host the Broadcaster opens the page at under `alchemy dev`. Alchemy
  * fronts this dev server with a proxy that rewrites `Host` to the internal
@@ -23,6 +26,7 @@ export default defineConfig({
     proxy: {
       "/setup/api": toLocalWorker,
       "/oauth": toLocalWorker,
+      "/overlay": { target: localOverlayWorker, headers: { host: devHost } },
     },
   },
   test: {

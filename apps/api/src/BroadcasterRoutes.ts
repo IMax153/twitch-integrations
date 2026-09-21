@@ -8,6 +8,8 @@ import {
   type UnknownChatCommand,
 } from "@twitch-integrations/domain/ChatCommandErrors"
 import type { BroadcasterIdentity } from "@twitch-integrations/domain/BroadcasterIdentity"
+import { IssuedOverlay } from "@twitch-integrations/domain/Overlay"
+import { nowPlayingOverlayUrl } from "@twitch-integrations/infra/Domain"
 import { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
@@ -274,6 +276,30 @@ const deleteChatCommandResponse = Effect.gen(function* () {
   return HttpServerResponse.empty({ status: 204 })
 }).pipe(answerRejections)
 
+const issuedOverlay = HttpServerResponse.schemaJson(Schema.toEncoded(IssuedOverlay))
+
+/**
+ * Issues the Overlay Key and answers with the browser source URL on the
+ * origin the Broadcaster is using, so it opens locally under `alchemy dev`
+ * and on the deployed hostname alike. The key appears in this answer and
+ * nowhere else: the Channel keeps only its digest, and the answer is never
+ * cached. Only the Broadcaster Page's JSON request is accepted, which is
+ * what keeps a cross-site form from rotating the key.
+ */
+const issueOverlayKeyResponse = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  if (!isJsonRequest(request)) {
+    return rejection(415, "Send the request as JSON.")
+  }
+  const channel = yield* Channel
+  const issued = yield* channel.issueOverlayKey
+  const origin = new URL(request.originalUrl).origin
+  return yield* issuedOverlay(
+    { url: nowPlayingOverlayUrl(origin, issued.key), issuedAt: issued.issuedAt },
+    { status: 201, headers: { "cache-control": "no-store" } },
+  )
+})
+
 // Route handlers run per request, so their services come from the router,
 // not from the handler's build context. This hands the routes whatever
 // `Connections` and `Channel` the surrounding Worker or test harness supplies.
@@ -283,6 +309,7 @@ const routes = Layer.mergeAll(
   HttpRouter.add("POST", "/setup/api/chat-commands", createChatCommandResponse),
   HttpRouter.add("PUT", "/setup/api/chat-commands/:name", updateChatCommandResponse),
   HttpRouter.add("DELETE", "/setup/api/chat-commands/:name", deleteChatCommandResponse),
+  HttpRouter.add("POST", "/setup/api/overlay-key", issueOverlayKeyResponse),
   HttpRouter.add("POST", "/oauth/:provider/authorize", authorizeResponse),
   HttpRouter.add("GET", "/oauth/:provider/callback", callbackResponse),
 ).pipe(

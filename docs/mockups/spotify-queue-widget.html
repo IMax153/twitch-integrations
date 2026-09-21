@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spotify Queue Widget — mockup</title>
+    <style>
+      :root {
+        --widget-w: 520px;
+        --widget-h: 150px;
+        /* Catppuccin Macchiato */
+        --ctp-crust: #181926;
+        --ctp-mantle: #1e2030;
+        --ctp-base: #24273a;
+        --ctp-surface0: #363a4f;
+        --ctp-surface1: #494d64;
+        --ctp-overlay0: #6e738d;
+        --ctp-subtext0: #a5adcb;
+        --ctp-text: #cad3f5;
+        --ctp-green: #a6da95;
+        --ctp-mauve: #c6a0f6;
+        --ctp-lavender: #b7bdf8;
+
+        --bg: rgba(36, 39, 58, 0.92); /* base */
+        --fg: var(--ctp-text);
+        --muted: var(--ctp-subtext0);
+        --accent: var(--ctp-green);
+        --radius: 18px;
+        --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: var(--font);
+        color: var(--fg);
+      }
+
+      /* Preview chrome only. In OBS the body is transparent and the widget sits at the top-left. */
+      body {
+        background: var(--ctp-crust);
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+      body.transparent {
+        background: repeating-conic-gradient(var(--ctp-mantle) 0 25%, var(--ctp-crust) 0 50%) 0 0 /
+          24px 24px;
+      }
+
+      .stage {
+        display: grid;
+        gap: 20px;
+        justify-items: center;
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .controls button {
+        font: inherit;
+        color: var(--fg);
+        background: var(--ctp-surface0);
+        border: 1px solid var(--ctp-surface1);
+        border-radius: 999px;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      .controls button:hover {
+        background: var(--ctp-surface1);
+      }
+
+      /* ---------- The widget ---------- */
+      .widget {
+        width: var(--widget-w);
+        height: var(--widget-h);
+        display: grid;
+        grid-template-columns: var(--widget-h) 1fr;
+        background: var(--bg);
+        border-radius: var(--radius);
+        overflow: hidden;
+        box-shadow:
+          0 20px 50px rgba(24, 25, 38, 0.6),
+          inset 0 0 0 1px var(--ctp-surface0);
+        backdrop-filter: blur(18px);
+        position: relative;
+      }
+
+      .art {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background-size: cover;
+        background-position: center;
+      }
+      .art::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent 70%, var(--bg));
+      }
+
+      .body {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        padding: 16px 20px 14px 18px;
+        min-width: 0;
+      }
+
+      .label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .bars {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 12px;
+      }
+      .bars i {
+        width: 3px;
+        background: var(--accent);
+        border-radius: 2px;
+        animation: bounce 1s ease-in-out infinite;
+      }
+      .bars i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .bars i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      .bars i:nth-child(4) {
+        animation-delay: 0.45s;
+      }
+      @keyframes bounce {
+        0%,
+        100% {
+          height: 3px;
+        }
+        50% {
+          height: 12px;
+        }
+      }
+
+      .track {
+        min-width: 0;
+        align-self: center;
+      }
+      .title {
+        font-size: 21px;
+        font-weight: 700;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .artist {
+        margin-top: 3px;
+        font-size: 14px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .progress {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 10px;
+        font-size: 11px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .progress .bar {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--ctp-surface1);
+        overflow: hidden;
+      }
+      .progress .bar > span {
+        display: block;
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        border-radius: 2px;
+        transition: width 1s linear;
+      }
+
+      /* ---------- Up next strip ---------- */
+      .upnext {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 178px;
+        padding: 14px 16px 14px 14px;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        background: linear-gradient(90deg, transparent, rgba(30, 32, 48, 0.75) 30%); /* mantle */
+        border-left: 1px solid var(--ctp-surface0);
+      }
+      .upnext .label {
+        color: var(--ctp-lavender);
+      }
+      .queue {
+        position: relative;
+        min-width: 0;
+      }
+      .queue .item {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 10px;
+        align-items: center;
+        opacity: 0;
+        transform: translateY(8px);
+        transition:
+          opacity 0.45s ease,
+          transform 0.45s ease;
+      }
+      .queue .item.active {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .queue .thumb {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        background-size: cover;
+      }
+      .queue .meta {
+        min-width: 0;
+      }
+      .queue .t {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .queue .a {
+        font-size: 11.5px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dots {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+      }
+      .dots i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--ctp-surface1);
+        transition:
+          background 0.3s,
+          width 0.3s;
+      }
+      .dots i.active {
+        background: var(--accent);
+        width: 14px;
+        border-radius: 3px;
+      }
+
+      /* Widen the body when the strip is present so text doesn't run under it */
+      .widget .body {
+        padding-right: 196px;
+      }
+
+      /* Variant: compact single row (toggle) */
+      .widget.compact {
+        --widget-h: 96px;
+      }
+      .widget.compact .body {
+        padding: 12px 196px 12px 16px;
+      }
+      .widget.compact .title {
+        font-size: 17px;
+      }
+      .widget.compact .artist {
+        font-size: 12.5px;
+      }
+      .widget.compact .progress {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="widget" id="widget">
+        <div class="art" id="art"></div>
+
+        <div class="body">
+          <div class="label">
+            <span class="bars"><i></i><i></i><i></i><i></i></span> Now playing
+          </div>
+          <div class="track">
+            <div class="title" id="title"></div>
+            <div class="artist" id="artist"></div>
+          </div>
+          <div class="progress">
+            <span id="elapsed">0:00</span>
+            <div class="bar"><span id="fill"></span></div>
+            <span id="duration">0:00</span>
+          </div>
+        </div>
+
+        <aside class="upnext">
+          <div class="label">Up next</div>
+          <div class="queue" id="queue"></div>
+          <div class="dots" id="dots"></div>
+        </aside>
+      </div>
+
+      <div class="controls">
+        <button id="toggleBg">Toggle transparent background</button>
+        <button id="toggleCompact">Toggle compact height</button>
+        <button id="skip">Skip track</button>
+        <span>Widget is 520×150 (compact 520×96). Up-next rotates every 4s.</span>
+      </div>
+    </div>
+
+    <script>
+      // Placeholder data. The gradients stand in for album cover images, which the
+      // real widget will load from Spotify's track `album.images`.
+      const art = (a, b) => `linear-gradient(135deg, ${a}, ${b})`
+      const tracks = [
+        { title: "Midnight City", artist: "M83", duration: 244, art: art("#f5a97f", "#ed8796") }, // peach → red
+        {
+          title: "Everything In Its Right Place",
+          artist: "Radiohead",
+          duration: 251,
+          art: art("#8aadf8", "#8bd5ca"),
+        }, // blue → teal
+        {
+          title: "Redbone",
+          artist: "Childish Gambino",
+          duration: 327,
+          art: art("#c6a0f6", "#b7bdf8"),
+        }, // mauve → lavender
+        {
+          title: "Nightcall",
+          artist: "Kavinsky, Lovefoxxx",
+          duration: 258,
+          art: art("#f5bde6", "#ee99a0"),
+        }, // pink → maroon
+        { title: "Dreams", artist: "Fleetwood Mac", duration: 257, art: art("#8bd5ca", "#a6da95") }, // teal → green
+        {
+          title: "Blinding Lights",
+          artist: "The Weeknd",
+          duration: 200,
+          art: art("#eed49f", "#f5a97f"),
+        }, // yellow → peach
+      ]
+
+      let head = 0
+      let elapsed = 0
+      let queueIndex = 0
+
+      const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+      const at = (i) => tracks[(head + i) % tracks.length]
+
+      function renderNow() {
+        const t = at(0)
+        document.getElementById("art").style.backgroundImage = t.art
+        document.getElementById("title").textContent = t.title
+        document.getElementById("artist").textContent = t.artist
+        document.getElementById("duration").textContent = fmt(t.duration)
+        renderProgress()
+      }
+
+      function renderProgress() {
+        const t = at(0)
+        document.getElementById("elapsed").textContent = fmt(elapsed)
+        document.getElementById("fill").style.width = `${(elapsed / t.duration) * 100}%`
+      }
+
+      function renderQueue() {
+        const queue = document.getElementById("queue")
+        const dots = document.getElementById("dots")
+        queue.innerHTML = ""
+        dots.innerHTML = ""
+        for (let i = 1; i <= 4; i++) {
+          const t = at(i)
+          const el = document.createElement("div")
+          el.className = "item" + (i - 1 === queueIndex ? " active" : "")
+          el.innerHTML = `<div class="thumb" style="background-image:${t.art}"></div>
+        <div class="meta"><div class="t"></div><div class="a"></div></div>`
+          el.querySelector(".t").textContent = `${i}. ${t.title}`
+          el.querySelector(".a").textContent = t.artist
+          queue.appendChild(el)
+          const d = document.createElement("i")
+          if (i - 1 === queueIndex) d.className = "active"
+          dots.appendChild(d)
+        }
+      }
+
+      function skip() {
+        head = (head + 1) % tracks.length
+        elapsed = 0
+        queueIndex = 0
+        renderNow()
+        renderQueue()
+      }
+
+      setInterval(() => {
+        elapsed += 1
+        if (elapsed >= at(0).duration) return skip()
+        renderProgress()
+      }, 1000)
+
+      setInterval(() => {
+        queueIndex = (queueIndex + 1) % 4
+        renderQueue()
+      }, 4000)
+
+      document.getElementById("toggleBg").onclick = () =>
+        document.body.classList.toggle("transparent")
+      document.getElementById("toggleCompact").onclick = () =>
+        document.getElementById("widget").classList.toggle("compact")
+      document.getElementById("skip").onclick = skip
+
+      elapsed = 73
+      renderNow()
+      renderQueue()
+    </script>
+  </body>
+</html>

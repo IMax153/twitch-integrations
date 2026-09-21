@@ -10,6 +10,14 @@ import type {
   InvalidChatCommandDraft,
   UnknownChatCommand,
 } from "@twitch-integrations/domain/ChatCommandErrors"
+import type {
+  IssuedOverlayKeyEncoded,
+  NowPlayingEncoded,
+} from "@twitch-integrations/domain/Overlay"
+import type {
+  NowPlayingUnavailable,
+  UnknownOverlayKey,
+} from "@twitch-integrations/domain/OverlayErrors"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -41,6 +49,12 @@ export interface ChannelService {
     draft: ChatCommandDraft,
   ) => Effect.Effect<ChatCommandEncoded, UnknownChatCommand | InvalidChatCommandDraft>
   readonly deleteChatCommand: (name: string) => Effect.Effect<void, UnknownChatCommand>
+  /** Issues the Overlay Key, revoking the last, in its encoded form as it crosses the RPC. */
+  readonly issueOverlayKey: Effect.Effect<IssuedOverlayKeyEncoded>
+  /** What the Overlay shows to whoever presents the current Overlay Key; refusals are matched on `_tag`. */
+  readonly readNowPlaying: (
+    key: string,
+  ) => Effect.Effect<NowPlayingEncoded, UnknownOverlayKey | NowPlayingUnavailable>
 }
 
 /** The fixed name the one Channel object is addressed by. */
@@ -65,6 +79,8 @@ const fromObject = (object: () => ChannelObjectShape): ChannelService => ({
   updateChatCommand: (name, draft) =>
     object().updateChatCommand(name, encodeChatCommandDraft(draft)),
   deleteChatCommand: (name) => object().deleteChatCommand(name),
+  issueOverlayKey: Effect.suspend(() => object().issueOverlayKey()),
+  readNowPlaying: (key) => object().readNowPlaying(key),
 })
 
 const make = Effect.map(ChannelObject, (objects) =>

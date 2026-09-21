@@ -127,6 +127,28 @@ export interface SpotifyWebScenario extends WithLatency {
   readonly tracks?: Readonly<Record<string, Track>>
   /** How the player refuses a queue add, when it does: Spotify's status and message, with its reason code for a player refusal. */
   readonly queueRefusal?: SpotifyRefusal
+  /** What the player reports; nothing active, answered with no body, unless the test says so. */
+  readonly playback?: SpotifyPlaybackRecord
+  /** The items after the current one in the player's queue, in order; none unless the test says so. */
+  readonly queue?: ReadonlyArray<SpotifyItemRecord>
+  /** How the player endpoints refuse, when they do, as for a token lacking the playback scope. */
+  readonly playerRefusal?: SpotifyRefusal
+}
+
+/** A playable item as the fake player reports it: a track by default, with whatever cover images the test gives it. */
+export interface SpotifyItemRecord {
+  readonly name: string
+  readonly artists: ReadonlyArray<string>
+  readonly durationMs: number
+  readonly images?: ReadonlyArray<{ readonly url: string; readonly width: number }>
+  readonly type?: "track" | "episode"
+}
+
+/** The player's state as the fake reports it. */
+export interface SpotifyPlaybackRecord {
+  readonly item: SpotifyItemRecord
+  readonly progressMs: number
+  readonly isPlaying: boolean
 }
 
 /** A Spotify Web API refusal as Spotify words it, with the reason code its player endpoints add. */
@@ -503,9 +525,50 @@ const spotifyEndpoint =
       : respond(401, { error: { status: 401, message: "Invalid access token" } })
   }
 
+/** An item as the Spotify player and queue endpoints put it on the wire; an episode carries no artists or album. */
+const itemWire = (item: SpotifyItemRecord): unknown =>
+  item.type === "episode"
+    ? { type: "episode", name: item.name, duration_ms: item.durationMs }
+    : {
+        type: "track",
+        name: item.name,
+        duration_ms: item.durationMs,
+        artists: item.artists.map((name) => ({ name })),
+        album: { images: item.images ?? [] },
+      }
+
+const spotifyRefusal = (refusal: SpotifyRefusal): FakeResponse =>
+  respond(refusal.status, {
+    error: {
+      status: refusal.status,
+      message: refusal.message,
+      ...(refusal.reason === undefined ? {} : { reason: refusal.reason }),
+    },
+  })
+
 const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
   hostname: "api.spotify.com",
   endpoints: {
+    "GET /v1/me/player": spotifyEndpoint((scenario) =>
+      scenario.playerRefusal !== undefined
+        ? spotifyRefusal(scenario.playerRefusal)
+        : scenario.playback === undefined
+          ? respondEmpty(204)
+          : respond(200, {
+              is_playing: scenario.playback.isPlaying,
+              progress_ms: scenario.playback.progressMs,
+              item: itemWire(scenario.playback.item),
+            }),
+    ),
+    "GET /v1/me/player/queue": spotifyEndpoint((scenario) =>
+      scenario.playerRefusal !== undefined
+        ? spotifyRefusal(scenario.playerRefusal)
+        : respond(200, {
+            currently_playing:
+              scenario.playback === undefined ? null : itemWire(scenario.playback.item),
+            queue: (scenario.queue ?? []).map(itemWire),
+          }),
+    ),
     "GET /v1/me": identityEndpoint("Bearer", (scenario) =>
       Option.map(scenario.accessToken, (accessToken) => ({
         accessToken,
@@ -515,15 +578,7 @@ const spotifyWeb: FakeApiDefinition<SpotifyWebScenario> = {
     "POST /v1/me/player/queue": spotifyEndpoint((scenario) =>
       scenario.queueRefusal === undefined
         ? respondEmpty(204)
-        : respond(scenario.queueRefusal.status, {
-            error: {
-              status: scenario.queueRefusal.status,
-              message: scenario.queueRefusal.message,
-              ...(scenario.queueRefusal.reason === undefined
-                ? {}
-                : { reason: scenario.queueRefusal.reason }),
-            },
-          }),
+        : spotifyRefusal(scenario.queueRefusal),
     ),
     "GET /v1/tracks/*": spotifyEndpoint((scenario, received) => {
       const id = new URL(received.url).pathname.split("/").pop() ?? ""

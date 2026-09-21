@@ -1,0 +1,20 @@
+{
+  "name": "@twitch-integrations/overlay",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@twitch-integrations/api": "workspace:^",
+    "@twitch-integrations/domain": "workspace:^",
+    "@twitch-integrations/infra": "workspace:^",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:"
+  }
+}

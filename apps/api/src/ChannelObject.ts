@@ -17,15 +17,26 @@ import {
   type UnknownChatCommand,
 } from "@twitch-integrations/domain/ChatCommandErrors"
 import { Notification, type NotificationEncoded } from "@twitch-integrations/domain/Notification"
+import {
+  type IssuedOverlayKeyEncoded,
+  NowPlaying,
+  type NowPlayingEncoded,
+} from "@twitch-integrations/domain/Overlay"
+import type {
+  NowPlayingUnavailable,
+  UnknownOverlayKey,
+} from "@twitch-integrations/domain/OverlayErrors"
 import { hasSettings, songRequestSettings } from "@twitch-integrations/domain/Reward"
 import { logFailure, observed } from "@twitch-integrations/infra/Failure"
 import * as Cloudflare from "alchemy/Cloudflare"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import type * as Crypto from "effect/Crypto"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { ChannelLock } from "./ChannelLock.ts"
@@ -33,6 +44,8 @@ import { ChannelReceive } from "./ChannelReceive.ts"
 import { ChannelReconcile, type ReconcileError } from "./ChannelReconcile.ts"
 import { ChannelStore } from "./ChannelStore.ts"
 import { ChatCommands } from "./ChatCommands.ts"
+import { Overlay } from "./Overlay.ts"
+import * as WebCrypto from "./WebCrypto.ts"
 import { Connections } from "./Connections.ts"
 import { EventSubTransport } from "./EventSubTransport.ts"
 import { Helix } from "./Helix.ts"
@@ -81,10 +94,24 @@ export type ChannelObjectShape = {
     draft: ChatCommandDraftEncoded,
   ) => Effect.Effect<ChatCommandEncoded, UnknownChatCommand | InvalidChatCommandDraft>
   readonly deleteChatCommand: (name: string) => Effect.Effect<void, UnknownChatCommand>
+  /** Issues the Overlay Key, revoking the last; the key crosses the boundary this once and is never stored. */
+  // oxlint-disable-next-line effecttsgo/lazy-effect
+  readonly issueOverlayKey: () => Effect.Effect<IssuedOverlayKeyEncoded>
+  /**
+   * What the Overlay shows, for the overlay Worker presenting what its
+   * request carried as the key. Refusals cross the boundary as plain
+   * objects carrying their tag and fields.
+   */
+  readonly readNowPlaying: (
+    key: string,
+  ) => Effect.Effect<NowPlayingEncoded, UnknownOverlayKey | NowPlayingUnavailable>
 }
 
 const decodeNotification = Schema.decodeUnknownEffect(Notification)
 const encodeMonitoring = Schema.encodeEffect(ChannelMonitoring)
+// What Spotify just answered always encodes, so a failure here is a defect.
+const encodeNowPlaying = (nowPlaying: NowPlaying) =>
+  Effect.orDie(Schema.encodeEffect(NowPlaying)(nowPlaying))
 // What was just stored always encodes, so a failure here is a defect.
 const encodeChatCommand = (command: ChatCommand) =>
   Effect.orDie(Schema.encodeEffect(ChatCommand)(command))
@@ -114,13 +141,14 @@ const decodeChatCommandDraft = (input: unknown) =>
 export const makeChannelObject: Effect.Effect<
   ChannelObjectShape,
   never,
-  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands | Overlay
 > = Effect.gen(function* () {
   const store = yield* ChannelStore
   const { reconcile } = yield* ChannelReconcile
   const { receive } = yield* ChannelReceive
   const queue = yield* RedemptionQueue
   const chatCommands = yield* ChatCommands
+  const overlay = yield* Overlay
   const stored = yield* store.readReward
   if (Option.isSome(stored) && !hasSettings(stored.value, songRequestSettings)) {
     yield* Effect.logInfo("The stored Reward's settings differ from the spec; reconciling")
@@ -147,23 +175,40 @@ export const makeChannelObject: Effect.Effect<
         defectsObserved,
       ),
     deleteChatCommand: (name) => defectsObserved(chatCommands.remove(name)),
+    issueOverlayKey: () =>
+      observed(
+        Effect.map(overlay.issueKey, ({ key, issuedAt }) => ({
+          key,
+          issuedAt: DateTime.formatIso(issuedAt),
+        })),
+      ),
+    // An unknown key or an unreachable Spotify is the overlay Worker's to
+    // answer, not an operational failure, so only a defect is logged.
+    readNowPlaying: (key) =>
+      overlay.readNowPlaying(key).pipe(Effect.flatMap(encodeNowPlaying), defectsObserved),
   }
 })
 
 /**
  * The object's whole layer graph over a `SqlClient`, the Provider
  * Credentials, an `HttpClient`, the Worker's view of the Connection objects,
- * and the transport settings.
+ * the transport settings, and a `Crypto` for the Overlay Key.
  */
 export const channelObjectLayer: Layer.Layer<
-  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands,
+  ChannelStore | ChannelReconcile | ChannelReceive | RedemptionQueue | ChatCommands | Overlay,
   never,
   | SqlClient.SqlClient
   | ProviderCredentials
   | HttpClient.HttpClient
   | Connections
   | EventSubTransport
-> = Layer.mergeAll(ChannelReconcile.layer, ChannelReceive.layer, ChatCommands.layer).pipe(
+  | Crypto.Crypto
+> = Layer.mergeAll(
+  ChannelReconcile.layer,
+  ChannelReceive.layer,
+  ChatCommands.layer,
+  Overlay.layer,
+).pipe(
   Layer.provideMerge(RedemptionQueue.layer),
   Layer.provide(SongRequests.layer),
   Layer.provide(Layer.mergeAll(ChannelLock.layer, TwitchAccess.layer, RewardPause.layer)),
@@ -208,6 +253,7 @@ export class ChannelObject extends Cloudflare.DurableObject<ChannelObject, Chann
               Layer.provide(FetchHttpClient.layer),
               Layer.provide(Layer.succeed(Connections, connections)),
               Layer.provide(EventSubTransport.layer),
+              Layer.provide(WebCrypto.layer),
             ),
             instanceScope,
           )

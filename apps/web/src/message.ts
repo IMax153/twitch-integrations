@@ -31,5 +31,14 @@ export const Message = defineMessageUnion({
   ClickedConfirmChatCommandDeletion: {},
   SucceededChatCommandWrite: {},
   FailedChatCommandWrite: { message: Schema.String },
+  ClickedIssueOverlayKey: {},
+  ClickedRotateOverlayKey: {},
+  ClickedKeepOverlayKey: {},
+  ClickedConfirmOverlayRotation: {},
+  SucceededIssueOverlayKey: { url: Schema.String },
+  FailedIssueOverlayKey: { message: Schema.String },
+  ClickedCopyOverlayUrl: {},
+  CompletedCopyOverlayUrl: { isCopied: Schema.Boolean },
+  ClickedDismissOverlayUrl: {},
 })
 export type Message = typeof Message.Type

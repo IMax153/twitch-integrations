@@ -1,4 +1,4 @@
-import { eventSubRoutePrefix } from "@twitch-integrations/infra/Domain"
+import { eventSubRoutePrefix, overlayRoutePrefix } from "@twitch-integrations/infra/Domain"
 import { BroadcasterZone } from "@twitch-integrations/infra/Zone"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -34,16 +34,20 @@ const freePlanSeconds = 10
 const characteristics = ["cf.colo.id", "ip.src"]
 
 /**
- * The zone rate-limiting rule on the receiver's route: the one guard the
- * public route has against a flood, since Twitch publishes no source IP
- * ranges to allowlist. It runs at Cloudflare's edge, before the Worker is
- * invoked, so a flood costs no Worker requests. Nothing under `alchemy dev`,
- * where the Workers run locally and the production zone must not be touched.
+ * The zone rate-limiting rule on the public routes: the one guard the
+ * receiver's route has against a flood, since Twitch publishes no source IP
+ * ranges to allowlist, and the overlay Worker's route beside it, whose
+ * only caller is the Broadcaster's OBS polling every few seconds. It runs
+ * at Cloudflare's edge, before either Worker is invoked, so a flood costs
+ * no Worker requests. Nothing under `alchemy dev`, where the Workers run
+ * locally and the production zone must not be touched.
  *
  * The Free plan's rule expression can name only the path, so the rule
- * covers the receiver's path prefix on every hostname in the zone; the
- * receiver is the only thing on that path. The resource owns the zone's whole
- * `http_ratelimit` phase, which on the Free plan holds this one rule.
+ * covers both path prefixes on every hostname in the zone; those Workers
+ * are the only things on those paths. The resource owns the zone's whole
+ * `http_ratelimit` phase, which on the Free plan holds this one rule, so
+ * both prefixes share it. The logical id keeps its EventSub name on purpose:
+ * renaming it would replace the deployed rule.
  */
 export const EventSubRateLimit = Effect.gen(function* () {
   if (yield* ALCHEMY_DEV) {
@@ -53,12 +57,12 @@ export const EventSubRateLimit = Effect.gen(function* () {
   return yield* Cloudflare.Ruleset.Ruleset("EventSubRateLimit", {
     zone,
     phase: "http_ratelimit",
-    description: "Rate limit on the EventSub receiver's route",
+    description: "Rate limit on the public routes: the EventSub receiver and the Overlay",
     rules: [
       {
         ref: "eventsub-receiver",
-        description: "Block a source IP that floods the EventSub receiver",
-        expression: `starts_with(http.request.uri.path, "${eventSubRoutePrefix}")`,
+        description: "Block a source IP that floods the EventSub receiver or the Overlay",
+        expression: `starts_with(http.request.uri.path, "${eventSubRoutePrefix}") or starts_with(http.request.uri.path, "${overlayRoutePrefix}")`,
         action: "block",
         ratelimit: {
           characteristics,

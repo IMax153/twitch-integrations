@@ -43,6 +43,17 @@ export const ChatCommandError = Schema.Struct({
 }).annotate({ identifier: "ChatCommandError" })
 export type ChatCommandError = typeof ChatCommandError.Type
 
+/**
+ * The Overlay URL as just issued, shown once: the page keeps it only until
+ * the Broadcaster dismisses it, and nothing else ever shows it again.
+ */
+export const IssuedOverlayUrl = Schema.Struct({
+  url: Schema.String,
+  /** Whether the last copy to the clipboard succeeded, once one was tried. */
+  maybeCopied: Schema.Option(Schema.Boolean),
+}).annotate({ identifier: "IssuedOverlayUrl" })
+export type IssuedOverlayUrl = typeof IssuedOverlayUrl.Type
+
 export const Flags = Schema.Struct({
   maybeResult: Schema.Option(BroadcasterResult),
   now: Schema.Finite,
@@ -70,5 +81,11 @@ export const Model = Schema.Struct({
   /** The one Chat Command write in flight, if any: the section's controls wait for it. */
   maybePendingWrite: Schema.Option(ChatCommandWriteOrigin),
   maybeChatCommandError: Schema.Option(ChatCommandError),
+  /** Whether rotating the Overlay Key awaits confirmation: it breaks the browser source OBS holds. */
+  isOverlayRotationPending: Schema.Boolean,
+  /** Whether an Overlay Key request is in flight; the section's buttons wait for it. */
+  isOverlayKeyPending: Schema.Boolean,
+  maybeIssuedOverlayUrl: Schema.Option(IssuedOverlayUrl),
+  maybeOverlayError: Schema.Option(Schema.String),
 }).annotate({ identifier: "Model" })
 export type Model = typeof Model.Type
