@@ -157,6 +157,7 @@ export const makeWorld = Effect.fnUntraced(function* (options: WorldOptions = {}
       Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
       Layer.provide(FakeProviders.layerCredentials),
       Layer.provide(Layer.succeedContext(fakes)),
+      Layer.provide(NodeCrypto.layer),
       Layer.provide(connections),
       Layer.provide(
         Layer.succeed(EventSubTransport, {

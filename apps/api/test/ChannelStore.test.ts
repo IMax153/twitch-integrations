@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import { ChannelStore } from "../src/ChannelStore.ts"
 import {
@@ -176,6 +177,30 @@ describe("ChannelStore chat commands", () => {
         ])
         yield* store.deleteChatCommand("Today")
         assert.deepStrictEqual(yield* store.readChatCommands, [])
+      }),
+    ),
+  )
+
+  it.effect("holds one Overlay Key digest, replaced on a second write", () =>
+    withStore((store) =>
+      Effect.gen(function* () {
+        assert.deepStrictEqual(yield* store.readOverlayKey, Option.none())
+        const first = {
+          digest: "a".repeat(64),
+          issuedAt: DateTime.makeUnsafe("2026-09-11T12:00:00Z"),
+        }
+        yield* store.writeOverlayKey(first)
+        assert.deepStrictEqual(yield* store.readOverlayKey, Option.some(first))
+        const second = {
+          digest: "b".repeat(64),
+          issuedAt: DateTime.makeUnsafe("2026-09-11T12:05:00Z"),
+        }
+        yield* store.writeOverlayKey(second)
+        assert.deepStrictEqual(yield* store.readOverlayKey, Option.some(second))
+        assert.deepStrictEqual(
+          (yield* store.readMonitoring).overlayKey,
+          Option.some({ issuedAt: second.issuedAt }),
+        )
       }),
     ),
   )

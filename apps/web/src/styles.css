@@ -458,3 +458,57 @@ code {
 .chat-commands [role="alert"] {
   margin-top: 0.25rem;
 }
+
+.overlay-panel {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+}
+.overlay-panel h2 {
+  margin-bottom: 0.5rem;
+}
+.overlay-panel > p {
+  max-width: 72ch;
+}
+.overlay-panel .headline-state {
+  margin-top: 1rem;
+}
+.overlay-panel p + button,
+.overlay-panel p + .overlay-rotate {
+  margin-top: 0.75rem;
+}
+.overlay-rotate p + p {
+  margin-top: 0.25rem;
+}
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.overlay-issued {
+  display: grid;
+  gap: 0.375rem;
+  max-width: 40rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.overlay-issued label {
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+.overlay-issued input {
+  font: inherit;
+  font-size: 0.875rem;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--text);
+  background: var(--page);
+}
+.overlay-issued [role="alert"] {
+  margin-top: 0.25rem;
+}

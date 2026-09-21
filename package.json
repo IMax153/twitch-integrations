@@ -15,6 +15,7 @@
     "@twitch-integrations/api": "workspace:^",
     "@twitch-integrations/eventsub": "workspace:^",
     "@twitch-integrations/infra": "workspace:^",
+    "@twitch-integrations/overlay": "workspace:^",
     "@types/node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:",

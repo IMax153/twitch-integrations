@@ -5,6 +5,7 @@ import {
   monitoringLimit,
 } from "@twitch-integrations/domain/ChannelMonitoring"
 import { EventSubscription } from "@twitch-integrations/domain/EventSubscription"
+import type { OverlayKeyIssue } from "@twitch-integrations/domain/Overlay"
 import { HeldRedemption, Redemption } from "@twitch-integrations/domain/Redemption"
 import { Reward } from "@twitch-integrations/domain/Reward"
 import * as Context from "effect/Context"
@@ -63,6 +64,15 @@ export interface ChannelStoreService {
   readonly writeChatCommand: (command: ChatCommand) => Effect.Effect<void>
   /** Forgets the Chat Command whose name matches without regard to case; one not stored is left unstored. */
   readonly deleteChatCommand: (name: string) => Effect.Effect<void>
+  /** The digest of the current Overlay Key and when it was issued, or none while none has been issued. */
+  readonly readOverlayKey: Effect.Effect<Option.Option<StoredOverlayKey>>
+  /** Replaces the Overlay Key entirely: only ever one, so issuing a new one revokes the last. */
+  readonly writeOverlayKey: (stored: StoredOverlayKey) => Effect.Effect<void>
+}
+
+/** What the Channel keeps of its Overlay Key: never the key, only its hex SHA-256 digest. */
+export interface StoredOverlayKey extends OverlayKeyIssue {
+  readonly digest: string
 }
 
 /**
@@ -122,6 +132,11 @@ interface CountRow {
   readonly count: number
 }
 
+interface OverlayKeyRow {
+  readonly digest: string
+  readonly issued_at: number
+}
+
 const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
   yield* sql`
       CREATE TABLE IF NOT EXISTS reward (
@@ -173,6 +188,13 @@ const createTables = Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
         document TEXT NOT NULL
       )
     `
+  yield* sql`
+      CREATE TABLE IF NOT EXISTS overlay_key (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        digest TEXT NOT NULL,
+        issued_at INTEGER NOT NULL
+      )
+    `
 })
 
 const make = Effect.gen(function* () {
@@ -191,6 +213,7 @@ const make = Effect.gen(function* () {
       const queuedCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM redemption_queue`
       const heldCount = yield* sql<CountRow>`SELECT COUNT(*) AS count FROM held_redemption`
       const chatCommands = yield* store.readChatCommands
+      const overlayKey = yield* store.readOverlayKey
       return {
         observedAt: yield* DateTime.now,
         state,
@@ -205,6 +228,7 @@ const make = Effect.gen(function* () {
           items: yield* Effect.forEach(held, (row) => decodeHeldRedemption(row.document)),
         },
         chatCommands,
+        overlayKey: Option.map(overlayKey, ({ issuedAt }) => ({ issuedAt })),
       }
     }).pipe(sql.withTransaction, Effect.orDie),
 
@@ -379,6 +403,23 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.orDie,
       ),
+
+    readOverlayKey: sql<OverlayKeyRow>`SELECT digest, issued_at FROM overlay_key WHERE id = 1`.pipe(
+      Effect.map((rows) =>
+        Option.map(Option.fromNullishOr(rows[0]), (row) => ({
+          digest: row.digest,
+          issuedAt: DateTime.makeUnsafe(row.issued_at),
+        })),
+      ),
+      Effect.orDie,
+    ),
+
+    writeOverlayKey: (stored) =>
+      sql`
+        INSERT INTO overlay_key (id, digest, issued_at)
+        VALUES (1, ${stored.digest}, ${DateTime.toEpochMillis(stored.issuedAt)})
+        ON CONFLICT (id) DO UPDATE SET digest = excluded.digest, issued_at = excluded.issued_at
+      `.pipe(Effect.asVoid, Effect.orDie),
   }
   return store
 })
@@ -386,8 +427,8 @@ const make = Effect.gen(function* () {
 /**
  * Persistence for the Channel: its Reward, its state, its Event
  * Subscriptions, the message IDs it has processed lately, its Processing
- * Queue, the Redemptions it holds for the next reconcile, and its Chat
- * Commands, written against the generic `SqlClient` so the same code
+ * Queue, the Redemptions it holds for the next reconcile, its Chat
+ * Commands, and the digest of its Overlay Key, written against the generic `SqlClient` so the same code
  * runs over Durable Object storage in production and over an in-memory
  * database in tests. As in the Connection store, storage failures and
  * malformed rows are defects.

@@ -12,10 +12,12 @@ import * as Schema from "effect/Schema"
 import { AsyncData, Update, type Runtime } from "foldkit"
 import { evo } from "foldkit/struct"
 import {
+  CopyOverlayUrl,
   CreateChatCommand,
   DeleteChatCommand,
   FetchChannel,
   FetchConnections,
+  IssueOverlayKey,
   UpdateChatCommand,
 } from "./command.ts"
 import { Message } from "./message.ts"
@@ -30,10 +32,12 @@ import {
 export { Flags, Model } from "./model.ts"
 export { Message } from "./message.ts"
 export {
+  CopyOverlayUrl,
   CreateChatCommand,
   DeleteChatCommand,
   FetchChannel,
   FetchConnections,
+  IssueOverlayKey,
   UpdateChatCommand,
 } from "./command.ts"
 export { view } from "./view.ts"
@@ -59,6 +63,10 @@ export const init: Runtime.ApplicationInit<Model, Message, Flags> = (flags) => (
     maybePendingDeletion: Option.none(),
     maybePendingWrite: Option.none(),
     maybeChatCommandError: Option.none(),
+    isOverlayRotationPending: false,
+    isOverlayKeyPending: false,
+    maybeIssuedOverlayUrl: Option.none(),
+    maybeOverlayError: Option.none(),
   },
   commands: flags.isVisible ? [FetchConnections(), FetchChannel()] : Array.empty(),
 })
@@ -267,6 +275,30 @@ const refuseWrite =
     }),
   })
 
+/**
+ * Asks for an Overlay Key, whether the first or a rotation: the confirmation
+ * closes, any earlier refusal clears, and the section waits for the answer.
+ * A second request while one is in flight is ignored.
+ */
+const issueOverlayKey = (model: Model): UpdateReturn =>
+  model.isOverlayKeyPending
+    ? { model }
+    : {
+        model: evo(model, {
+          isOverlayKeyPending: () => true,
+          isOverlayRotationPending: () => false,
+          maybeOverlayError: () => Option.none(),
+          maybeIssuedOverlayUrl: () => Option.none(),
+        }),
+        commands: [IssueOverlayKey()],
+      }
+
+const copyOverlayUrl = (model: Model): UpdateReturn =>
+  Option.match(model.maybeIssuedOverlayUrl, {
+    onNone: () => ({ model }),
+    onSome: (issued) => ({ model, commands: [CopyOverlayUrl({ url: issued.url })] }),
+  })
+
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
     SucceededFetchConnections: ({ connections, checkedAt }) => ({
@@ -358,4 +390,38 @@ export const update = (model: Model, message: Message) =>
     ClickedConfirmChatCommandDeletion: () => confirmChatCommandDeletion(model),
     SucceededChatCommandWrite: () => completeWrite(model),
     FailedChatCommandWrite: refuseWrite(model),
+    ClickedIssueOverlayKey: () => issueOverlayKey(model),
+    ClickedRotateOverlayKey: () => ({
+      model: evo(model, {
+        isOverlayRotationPending: () => true,
+        maybeOverlayError: () => Option.none(),
+      }),
+    }),
+    ClickedKeepOverlayKey: () => ({ model: evo(model, { isOverlayRotationPending: () => false }) }),
+    ClickedConfirmOverlayRotation: () => issueOverlayKey(model),
+    // The snapshot is read again so the issue time it shows is the new one.
+    SucceededIssueOverlayKey: ({ url }) =>
+      refetchChannel(
+        evo(model, {
+          isOverlayKeyPending: () => false,
+          maybeIssuedOverlayUrl: () => Option.some({ url, maybeCopied: Option.none() }),
+        }),
+      ),
+    FailedIssueOverlayKey: ({ message }) => ({
+      model: evo(model, {
+        isOverlayKeyPending: () => false,
+        maybeOverlayError: () => Option.some(message),
+      }),
+    }),
+    ClickedCopyOverlayUrl: () => copyOverlayUrl(model),
+    CompletedCopyOverlayUrl: ({ isCopied }) => ({
+      model: evo(model, {
+        maybeIssuedOverlayUrl: Option.map((issued) =>
+          evo(issued, { maybeCopied: () => Option.some(isCopied) }),
+        ),
+      }),
+    }),
+    ClickedDismissOverlayUrl: () => ({
+      model: evo(model, { maybeIssuedOverlayUrl: () => Option.none() }),
+    }),
   })

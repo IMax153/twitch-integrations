@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema"
 import { ChannelState } from "./ChannelState.ts"
 import { ChatCommand } from "./ChatCommand.ts"
 import { EventSubscription } from "./EventSubscription.ts"
+import { OverlayKeyIssue } from "./Overlay.ts"
 import { HeldRedemption, Redemption } from "./Redemption.ts"
 import { Reward } from "./Reward.ts"
 
@@ -28,6 +29,8 @@ export const ChannelMonitoring = Schema.Struct({
   held: HeldOverview,
   /** Every Chat Command, small by construction and so unbounded. */
   chatCommands: Schema.Array(ChatCommand),
+  /** When the current Overlay Key was issued, or none while the Broadcaster has not issued one. */
+  overlayKey: Schema.OptionFromNullOr(OverlayKeyIssue),
 }).annotate({ identifier: "ChannelMonitoring" })
 export type ChannelMonitoring = typeof ChannelMonitoring.Type
 export type ChannelMonitoringEncoded = typeof ChannelMonitoring.Encoded

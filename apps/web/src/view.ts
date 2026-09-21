@@ -7,6 +7,7 @@ import { chatCommandsView } from "./chatCommandView.ts"
 import { connectionsView } from "./connectionView.ts"
 import { Message } from "./message.ts"
 import type { Model } from "./model.ts"
+import { overlayView } from "./overlayView.ts"
 
 const resultMessages: Record<
   BroadcasterResult,
@@ -52,7 +53,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
             [],
             [
               h.h1([], ["Broadcaster Page"]),
-              h.p([h.Class("muted")], ["Song Requests, Chat Commands, and Connections."]),
+              h.p(
+                [h.Class("muted")],
+                ["Song Requests, Chat Commands, the Overlay, and Connections."],
+              ),
             ],
           ),
           // NOTE: this standalone native button is a single refresh action, with no composite-widget behavior.
@@ -74,6 +78,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
         [songRequestsView(model, h), processingView(model, h), connectionsView(model, h)],
       ),
       chatCommandsView(model, h),
+      overlayView(model, h),
       channelDetailsView(model, h),
       h.footer(
         [h.Class("page-footer")],

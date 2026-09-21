@@ -86,6 +86,9 @@ importers:
       '@twitch-integrations/infra':
         specifier: workspace:^
         version: link:apps/infra
+      '@twitch-integrations/overlay':
+        specifier: workspace:^
+        version: link:apps/overlay
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -164,6 +167,31 @@ importers:
         specifier: 4.0.0-rc.113
         version: 4.0.0-rc.113
     devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)(vitest@4.1.11)
+
+  apps/overlay:
+    dependencies:
+      '@twitch-integrations/api':
+        specifier: workspace:^
+        version: link:../api
+      '@twitch-integrations/domain':
+        specifier: workspace:^
+        version: link:../../packages/domain
+      '@twitch-integrations/infra':
+        specifier: workspace:^
+        version: link:../infra
+      alchemy:
+        specifier: 'catalog:'
+        version: 2.0.0-beta.77(patch_hash=f9b30646b628534a43c5f3e47ed6201c9c0354550ee73e55bddf324203676fac)(@effect/platform-node@4.0.0-rc.113(effect@4.0.0-rc.113)(redis@6.2.1))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.0))(effect@4.0.0-rc.113)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
+      effect:
+        specifier: 4.0.0-rc.113
+        version: 4.0.0-rc.113
+    devDependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-rc.113(effect@4.0.0-rc.113)(redis@6.2.1)
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-rc.113(effect@4.0.0-rc.113)(vitest@4.1.11)
