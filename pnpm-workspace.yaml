@@ -6,7 +6,9 @@ packages:
 catalogMode: prefer
 
 catalog:
+  "@effect/platform-browser": 4.0.0-rc.117
   "@effect/platform-node": 4.0.0-rc.117
+  "@effect/platform-node-shared": 4.0.0-rc.117
   "@effect/sql-sqlite-do": 4.0.0-rc.117
   "@effect/sql-sqlite-node": 4.0.0-rc.117
   "@effect/tsgo": ^0.38.0
@@ -28,7 +30,6 @@ overrides:
   "@effect/platform-node": "catalog:"
   "@effect/platform-node-shared": "catalog:"
   "@effect/platform-browser": "catalog:"
-  "@effect/sql-d1": "catalog:"
   "@effect/sql-sqlite-do": "catalog:"
   "@effect/vitest": "catalog:"
   vite: "catalog:"
