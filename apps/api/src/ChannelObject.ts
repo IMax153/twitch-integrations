@@ -229,7 +229,7 @@ export class ChannelObject extends Cloudflare.DurableObject<ChannelObject, Chann
   "ChannelObject",
 ) {
   // Every service the init needs is one the hosting Worker provides.
-  static readonly layer = ChannelObject.make<never>(
+  static readonly layer = ChannelObject.make<Cloudflare.DurableObjectState | Cloudflare.Worker>(
     Effect.gen(function* () {
       const state = yield* Cloudflare.DurableObjectState
       // The Connection objects' namespace is resolved here, in the init

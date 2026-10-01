@@ -11,6 +11,7 @@ import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { ChannelLock } from "./ChannelLock.ts"
@@ -185,18 +186,13 @@ const make = Effect.gen(function* () {
   /** Acts on the event and says what came of it, so only acted-on messages are remembered. */
   const act = (notification: Notification): Effect.Effect<Acted> => {
     const { event } = notification
-    switch (event._tag) {
-      case "StreamOnline":
-        return Effect.as(setState("Live"), recorded)
-      case "StreamOffline":
-        return Effect.as(setState("Offline"), recorded)
-      case "Revocation":
-        return revoke(notification.subscriptionId, event)
-      case "RedemptionAdded":
-        return enqueue(event.redemption)
-      case "ChatMessage":
-        return invoke(event)
-    }
+    return Match.valueTags(event, {
+      StreamOnline: () => Effect.as(setState("Live"), recorded),
+      StreamOffline: () => Effect.as(setState("Offline"), recorded),
+      Revocation: (revocation) => revoke(notification.subscriptionId, revocation),
+      RedemptionAdded: ({ redemption }) => enqueue(redemption),
+      ChatMessage: invoke,
+    })
   }
 
   /** Acts on the notification under the lock, once per message ID, and says what is owed afterwards. */

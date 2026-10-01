@@ -11,7 +11,7 @@
       "source": "foldkit/foldkit",
       "sourceType": "github",
       "skillPath": "skills/audit-program/SKILL.md",
-      "computedHash": "7e197a81b3d1bf8a1047800009d8e1d019823c8dd831ebf4fcfd40bb7fc224bd"
+      "computedHash": "f59cae24eeb8626bb977dcba2b870bcfe5f95f778664308d00b310f650de02a9"
     },
     "code-review": {
       "source": "mattpocock/skills",
@@ -41,13 +41,13 @@
       "source": "foldkit/foldkit",
       "sourceType": "github",
       "skillPath": "skills/foldkit/SKILL.md",
-      "computedHash": "be75f13704cbfd5769a1aa421979507cd90f81dd1ddab3cc8cb7256124a7284a"
+      "computedHash": "c3de20f4aa79c073896eb54b2e1235d8844f30bbb428cbc3043006fc2af9fd9b"
     },
     "generate-program": {
       "source": "foldkit/foldkit",
       "sourceType": "github",
       "skillPath": "skills/generate-program/SKILL.md",
-      "computedHash": "04881fee174b81cb00af7981f7b4403141b444e6d3c8003115e5933099d8f67d"
+      "computedHash": "fd04a6eb0714e69530a50fb9e7848d72c71403ddc30f23ef5c8ba49358eabe00"
     },
     "grill-me": {
       "source": "mattpocock/skills",

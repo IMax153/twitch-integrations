@@ -4,6 +4,7 @@ import { nowPlayingOverlayPath, overlayKeyParameter } from "@twitch-integrations
 import * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
+import * as Match from "effect/Match"
 import * as Schema from "effect/Schema"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
@@ -74,14 +75,13 @@ export const OverlayHttp = Effect.all([Channel, Crypto.Crypto]).pipe(
       }
       const read = yield* Effect.result(channel.readNowPlaying(presentedKey(url)))
       if (read._tag === "Failure") {
-        switch (read.failure._tag) {
-          case "UnknownOverlayKey":
-            return notFound
-          case "NowPlayingUnavailable":
-            // The key is right but Spotify cannot be asked: the page itself
-            // still loads and shows nothing, and the state answer says why.
-            return url.pathname === statePath ? unavailable : yield* page(yield* nonce)
-        }
+        return yield* Match.valueTags(read.failure, {
+          UnknownOverlayKey: () => Effect.succeed(notFound),
+          // The key is right but Spotify cannot be asked: the page itself
+          // still loads and shows nothing, and the state answer says why.
+          NowPlayingUnavailable: () =>
+            url.pathname === statePath ? Effect.succeed(unavailable) : Effect.flatMap(nonce, page),
+        })
       }
       // What the Channel just encoded always serialises, so a failure is a defect.
       return url.pathname === statePath

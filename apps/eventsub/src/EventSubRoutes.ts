@@ -3,6 +3,7 @@ import { eventSubPath } from "@twitch-integrations/infra/Domain"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Headers from "effect/unstable/http/Headers"
@@ -87,20 +88,12 @@ const declaredLength = (headers: Headers.Headers): Option.Option<number> =>
  * Channel, and a malformed one is logged and acknowledged too: Twitch would
  * only resend it, and no resend of the same body would parse better.
  */
-const deliver = (channel: Channel["Service"]) =>
-  Effect.fnUntraced(function* (parsed: Parsed) {
-    switch (parsed._tag) {
-      case "Forward":
-        yield* channel.receive(parsed.notification)
-        return accepted
-      case "UnknownType":
-        yield* Effect.logInfo(`Ignoring a ${parsed.type} notification`)
-        return accepted
-      case "Malformed":
-        yield* Effect.logWarning("Ignoring a message whose body is not what its type says")
-        return accepted
-    }
-  })
+const deliver = (channel: Channel["Service"]) => (parsed: Parsed) =>
+  Match.valueTags(parsed, {
+    Forward: ({ notification }) => channel.receive(notification),
+    UnknownType: ({ type }) => Effect.logInfo(`Ignoring a ${type} notification`),
+    Malformed: () => Effect.logWarning("Ignoring a message whose body is not what its type says"),
+  }).pipe(Effect.as(accepted))
 
 /** The Worker's HTTP handler, built once over the configured secret and the Channel. */
 export const EventSubHttp = Effect.all([Effect.flatMap(WebhookSecret, makeVerifier), Channel]).pipe(

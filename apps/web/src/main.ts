@@ -10,7 +10,7 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { AsyncData, Update, type Runtime } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
   CopyOverlayUrl,
   CreateChatCommand,
@@ -75,7 +75,7 @@ const refreshConnections = (model: Model): UpdateReturn =>
   Option.match(AsyncData.revalidateOrLoad(model.connections), {
     onNone: () => ({ model }),
     onSome: (connections) => ({
-      model: evo(model, { connections: () => connections }),
+      model: modifyFields(model, { connections: () => connections }),
       commands: [FetchConnections()],
     }),
   })
@@ -84,13 +84,13 @@ const refreshChannel = (model: Model): UpdateReturn =>
   Option.match(AsyncData.revalidateOrLoad(model.channel), {
     onNone: () => ({ model }),
     onSome: (channel) => ({
-      model: evo(model, { channel: () => channel }),
+      model: modifyFields(model, { channel: () => channel }),
       commands: [FetchChannel()],
     }),
   })
 
 const refresh = (model: Model): UpdateReturn =>
-  Update.combine(evo(model, { lastRefreshStartedAt: () => model.now }), [
+  Update.combine(modifyFields(model, { lastRefreshStartedAt: () => model.now }), [
     refreshConnections,
     refreshChannel,
   ])
@@ -101,7 +101,7 @@ const refresh = (model: Model): UpdateReturn =>
  * landed, and the later answer settles last.
  */
 const refetchChannel = (model: Model): UpdateReturn => ({
-  model: evo(model, {
+  model: modifyFields(model, {
     channel: (current) => Option.getOrElse(AsyncData.revalidateOrLoad(current), () => current),
   }),
   commands: [FetchChannel()],
@@ -110,7 +110,7 @@ const refetchChannel = (model: Model): UpdateReturn => ({
 const tick =
   (model: Model) =>
   ({ now }: typeof Message.TickedClock.Type): UpdateReturn => {
-    const next = evo(model, { now: () => now })
+    const next = modifyFields(model, { now: () => now })
     return next.isVisible && now - next.lastRefreshStartedAt >= refreshIntervalMs
       ? refresh(next)
       : { model: next }
@@ -119,7 +119,7 @@ const tick =
 const updateVisibility =
   (model: Model) =>
   ({ isVisible, now }: typeof Message.UpdatedVisibility.Type): UpdateReturn => {
-    const next = evo(model, { isVisible: () => isVisible, now: () => now })
+    const next = modifyFields(model, { isVisible: () => isVisible, now: () => now })
     return isVisible && !model.isVisible ? refresh(next) : { model: next }
   }
 
@@ -162,7 +162,7 @@ const startWrite = (
   Option.isSome(model.maybePendingWrite)
     ? { model }
     : {
-        model: evo(model, {
+        model: modifyFields(model, {
           maybePendingWrite: () => Option.some(origin),
           maybeChatCommandError: () => Option.none(),
         }),
@@ -174,7 +174,7 @@ const refuseLocally = (
   origin: ChatCommandWriteOrigin,
   message: string,
 ): UpdateReturn => ({
-  model: evo(model, {
+  model: modifyFields(model, {
     maybeChatCommandError: () => Option.some({ maybeName: origin.maybeName, message }),
   }),
 })
@@ -247,7 +247,7 @@ const confirmChatCommandDeletion = (model: Model): UpdateReturn =>
  */
 const completeWrite = (model: Model): UpdateReturn =>
   refetchChannel(
-    evo(model, {
+    modifyFields(model, {
       maybePendingWrite: () => Option.none(),
       newChatCommand: (form) =>
         Option.exists(model.maybePendingWrite, (write) => Option.isNone(write.maybeName))
@@ -265,7 +265,7 @@ const completeWrite = (model: Model): UpdateReturn =>
 const refuseWrite =
   (model: Model) =>
   ({ message }: typeof Message.FailedChatCommandWrite.Type): UpdateReturn => ({
-    model: evo(model, {
+    model: modifyFields(model, {
       maybePendingWrite: () => Option.none(),
       maybeChatCommandError: () =>
         Option.some({
@@ -284,7 +284,7 @@ const issueOverlayKey = (model: Model): UpdateReturn =>
   model.isOverlayKeyPending
     ? { model }
     : {
-        model: evo(model, {
+        model: modifyFields(model, {
           isOverlayKeyPending: () => true,
           isOverlayRotationPending: () => false,
           maybeOverlayError: () => Option.none(),
@@ -302,35 +302,39 @@ const copyOverlayUrl = (model: Model): UpdateReturn =>
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
     SucceededFetchConnections: ({ connections, checkedAt }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         connections: (current) => AsyncData.settle(current, Result.succeed(connections)),
         maybeConnectionsCheckedAt: () => Option.some(checkedAt),
         now: () => Math.max(model.now, checkedAt),
       }),
     }),
     FailedFetchConnections: ({ error }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         connections: (current) => AsyncData.settle(current, Result.fail(error)),
       }),
     }),
     SucceededFetchChannel: ({ channel, checkedAt }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         channel: (current) => AsyncData.settle(current, Result.succeed(channel)),
         maybeChannelCheckedAt: () => Option.some(checkedAt),
         now: () => Math.max(model.now, checkedAt),
       }),
     }),
     FailedFetchChannel: ({ error }) => ({
-      model: evo(model, { channel: (current) => AsyncData.settle(current, Result.fail(error)) }),
+      model: modifyFields(model, {
+        channel: (current) => AsyncData.settle(current, Result.fail(error)),
+      }),
     }),
     ClickedReload: () => refresh(model),
     TickedClock: tick(model),
     UpdatedVisibility: updateVisibility(model),
-    ToggledQueue: ({ isOpen }) => ({ model: evo(model, { isQueueOpen: () => isOpen }) }),
-    ToggledHeld: ({ isOpen }) => ({ model: evo(model, { isHeldOpen: () => isOpen }) }),
-    ToggledReadiness: ({ isOpen }) => ({ model: evo(model, { isReadinessOpen: () => isOpen }) }),
+    ToggledQueue: ({ isOpen }) => ({ model: modifyFields(model, { isQueueOpen: () => isOpen }) }),
+    ToggledHeld: ({ isOpen }) => ({ model: modifyFields(model, { isHeldOpen: () => isOpen }) }),
+    ToggledReadiness: ({ isOpen }) => ({
+      model: modifyFields(model, { isReadinessOpen: () => isOpen }),
+    }),
     ToggledConnection: ({ provider, isOpen }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         expandedProviders: (current) =>
           isOpen
             ? Array.dedupe([...current, provider])
@@ -338,14 +342,18 @@ export const update = (model: Model, message: Message) =>
       }),
     }),
     UpdatedNewChatCommandName: ({ value }) => ({
-      model: evo(model, { newChatCommand: (form) => evo(form, { name: () => value }) }),
+      model: modifyFields(model, {
+        newChatCommand: (form) => modifyFields(form, { name: () => value }),
+      }),
     }),
     UpdatedNewChatCommandResponse: ({ value }) => ({
-      model: evo(model, { newChatCommand: (form) => evo(form, { response: () => value }) }),
+      model: modifyFields(model, {
+        newChatCommand: (form) => modifyFields(form, { response: () => value }),
+      }),
     }),
     SubmittedNewChatCommand: () => submitNewChatCommand(model),
     ClickedEditChatCommand: ({ name }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         maybeChatCommandEdit: () =>
           Option.map(storedChatCommand(model, name), (stored) => ({
             name,
@@ -357,17 +365,19 @@ export const update = (model: Model, message: Message) =>
       }),
     }),
     UpdatedChatCommandResponse: ({ value }) => ({
-      model: evo(model, {
-        maybeChatCommandEdit: Option.map((edit) => evo(edit, { response: () => value })),
+      model: modifyFields(model, {
+        maybeChatCommandEdit: Option.map((edit) => modifyFields(edit, { response: () => value })),
       }),
     }),
     UpdatedChatCommandCooldown: ({ value }) => ({
-      model: evo(model, {
-        maybeChatCommandEdit: Option.map((edit) => evo(edit, { cooldownSeconds: () => value })),
+      model: modifyFields(model, {
+        maybeChatCommandEdit: Option.map((edit) =>
+          modifyFields(edit, { cooldownSeconds: () => value }),
+        ),
       }),
     }),
     ClickedCancelChatCommandEdit: () => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         maybeChatCommandEdit: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
@@ -375,14 +385,14 @@ export const update = (model: Model, message: Message) =>
     SubmittedChatCommandEdit: () => submitChatCommandEdit(model),
     ClickedChatCommandStatus: requestChatCommandStatus(model),
     ClickedDeleteChatCommand: ({ name }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         maybePendingDeletion: () => Option.some(name),
         maybeChatCommandEdit: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
     }),
     ClickedKeepChatCommand: () => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         maybePendingDeletion: () => Option.none(),
         maybeChatCommandError: () => Option.none(),
       }),
@@ -392,36 +402,38 @@ export const update = (model: Model, message: Message) =>
     FailedChatCommandWrite: refuseWrite(model),
     ClickedIssueOverlayKey: () => issueOverlayKey(model),
     ClickedRotateOverlayKey: () => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         isOverlayRotationPending: () => true,
         maybeOverlayError: () => Option.none(),
       }),
     }),
-    ClickedKeepOverlayKey: () => ({ model: evo(model, { isOverlayRotationPending: () => false }) }),
+    ClickedKeepOverlayKey: () => ({
+      model: modifyFields(model, { isOverlayRotationPending: () => false }),
+    }),
     ClickedConfirmOverlayRotation: () => issueOverlayKey(model),
     // The snapshot is read again so the issue time it shows is the new one.
     SucceededIssueOverlayKey: ({ url }) =>
       refetchChannel(
-        evo(model, {
+        modifyFields(model, {
           isOverlayKeyPending: () => false,
           maybeIssuedOverlayUrl: () => Option.some({ url, maybeCopied: Option.none() }),
         }),
       ),
     FailedIssueOverlayKey: ({ message }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         isOverlayKeyPending: () => false,
         maybeOverlayError: () => Option.some(message),
       }),
     }),
     ClickedCopyOverlayUrl: () => copyOverlayUrl(model),
     CompletedCopyOverlayUrl: ({ isCopied }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         maybeIssuedOverlayUrl: Option.map((issued) =>
-          evo(issued, { maybeCopied: () => Option.some(isCopied) }),
+          modifyFields(issued, { maybeCopied: () => Option.some(isCopied) }),
         ),
       }),
     }),
     ClickedDismissOverlayUrl: () => ({
-      model: evo(model, { maybeIssuedOverlayUrl: () => Option.none() }),
+      model: modifyFields(model, { maybeIssuedOverlayUrl: () => Option.none() }),
     }),
   })
