@@ -30,7 +30,7 @@ describe("Chat Command writes", () => {
       message(Message.UpdatedNewChatCommandName({ value: "today" })),
       message(Message.UpdatedNewChatCommandResponse({ value: today.response })),
       message(Message.SubmittedNewChatCommand()),
-      model((next) => expect(Option.isSome(next.maybePendingWrite)).toBe(true)),
+      model((next) => expect(next.maybePendingWrite.pipe(Option.isSome)).toBe(true)),
       Command.expectExact(CreateChatCommand({ name: "today", response: today.response })),
       Command.resolve(CreateChatCommand, Message.SucceededChatCommandWrite()),
       model((next) => {
@@ -111,7 +111,7 @@ describe("Chat Command writes", () => {
         expect(Option.map(next.maybeChatCommandError, (error) => error.maybeName)).toEqual(
           Option.some(Option.some("today")),
         )
-        expect(Option.isSome(next.maybeChatCommandEdit)).toBe(true)
+        expect(next.maybeChatCommandEdit.pipe(Option.isSome)).toBe(true)
       }),
       message(Message.ClickedCancelChatCommandEdit()),
       model((next) => {

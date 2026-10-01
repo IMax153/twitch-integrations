@@ -4,6 +4,7 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -94,14 +95,11 @@ export const isMomentary = (failure: ProviderRequestFailed): boolean =>
 /** The failure in words for the Broadcaster Page: which Provider, which request, and what came of it. */
 export const describeFailure = (failure: ProviderRequestFailed): string => {
   const subject = `${providerLabels[failure.provider]} ${failure.operation} request`
-  switch (failure.reason._tag) {
-    case "Transport":
-      return `The ${subject} got no answer.`
-    case "Status":
-      return `The ${subject} was answered with status ${failure.reason.status}.`
-    case "Body":
-      return `The ${subject} was answered with an unexpected body.`
-  }
+  return Match.valueTags(failure.reason, {
+    Transport: () => `The ${subject} got no answer.`,
+    Status: ({ status }) => `The ${subject} was answered with status ${status}.`,
+    Body: () => `The ${subject} was answered with an unexpected body.`,
+  })
 }
 
 /** What a failed HTTP call to a Provider amounts to, with the request and response left behind. */
@@ -111,15 +109,15 @@ export const failureReason = (
   if (cause._tag === "SchemaError") {
     return { _tag: "Body" }
   }
-  switch (cause.reason._tag) {
-    case "StatusCodeError":
-      return { _tag: "Status", status: cause.reason.response.status }
-    case "DecodeError":
-    case "EmptyBodyError":
-      return { _tag: "Body" }
-    default:
-      return { _tag: "Transport" }
-  }
+  return Match.value(cause.reason).pipe(
+    Match.withReturnType<ProviderFailureReason>(),
+    Match.tags({
+      StatusCodeError: ({ response }) => ({ _tag: "Status", status: response.status }),
+      DecodeError: () => ({ _tag: "Body" }),
+      EmptyBodyError: () => ({ _tag: "Body" }),
+    }),
+    Match.orElse(() => ({ _tag: "Transport" })),
+  )
 }
 
 /**

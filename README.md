@@ -115,7 +115,7 @@ The deployed shape is described in [ADR 0002](docs/adr/0002-two-workers-on-one-c
 - `packages/domain` holds the Effect Schemas shared by the apps.
 - `tools/*` contains workspace tools.
 
-New packages should extend `tsconfig.base.json` and be added to the references in `tsconfig.workspace.json`. Use `catalog:` for shared dependencies. Effect is pinned to `4.0.0-rc.113`; the remaining catalog entries support development tooling.
+New packages should extend `tsconfig.base.json` and be added to the references in `tsconfig.workspace.json`. Use `catalog:` for shared dependencies. Effect is pinned to `4.0.0-rc.117`, the release Foldkit 0.164 pins exactly. Effect 4.0.0 moved the `effect/unstable/*` modules, and Alchemy 2.0.0-beta.79 and its Distilled packages still import the old paths, so they fail to load on it. Move to 4.0.0 once Alchemy publishes a release built against it. The `overrides` in `pnpm-workspace.yaml` keep one Effect and one release of each `@effect/*` package across the graph. The remaining catalog entries support development tooling.
 
 Vite+ configuration lives in `vite.config.ts`. Run project scripts and tasks with `vp run <name>`. The pre-commit hook runs `vp staged`; after initializing Git, enable it with:
 

@@ -3,6 +3,7 @@ import type { ProviderName } from "@twitch-integrations/domain/ProviderName"
 import type { Track } from "@twitch-integrations/domain/SongRequestReply"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -215,22 +216,22 @@ const tokenEndpoint =
       return noScenario
     }
     const { token } = scenario
-    switch (token._tag) {
-      case "Grant":
-        return respond(200, {
-          access_token: token.grant.accessToken,
-          token_type: dialect.tokenType,
-          expires_in: token.grant.expiresIn,
-          refresh_token: Option.getOrUndefined(token.grant.refreshToken),
-          scope: Option.map(token.grant.scopes, dialect.scope).pipe(Option.getOrUndefined),
-        })
-      case "Status":
-        return respond(token.status, { error: "invalid_grant" })
-      case "Unreachable":
-        return "unreachable"
-      case "Malformed":
-        return respond(200, { unexpected: true })
-    }
+    return Match.value(token).pipe(
+      Match.withReturnType<FakeResponse>(),
+      Match.tagsExhaustive({
+        Grant: ({ grant }) =>
+          respond(200, {
+            access_token: grant.accessToken,
+            token_type: dialect.tokenType,
+            expires_in: grant.expiresIn,
+            refresh_token: Option.getOrUndefined(grant.refreshToken),
+            scope: Option.map(grant.scopes, dialect.scope).pipe(Option.getOrUndefined),
+          }),
+        Status: ({ status }) => respond(status, { error: "invalid_grant" }),
+        Unreachable: () => "unreachable",
+        Malformed: () => respond(200, { unexpected: true }),
+      }),
+    )
   }
 
 /** An identity endpoint: requires the accepted access token in the host's own `Authorization` scheme, and answers 401 while there is none. */
