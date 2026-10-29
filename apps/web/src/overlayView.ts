@@ -7,7 +7,7 @@ import type { IssuedOverlayUrl, Model } from "./model.ts"
 import { elapsed } from "./monitoringView.ts"
 
 /** The size the widget is drawn at, which the Broadcaster gives the browser source. */
-const widgetSize = "520 × 150"
+const widgetSize = "340 × 110"
 
 const issuedUrlView = (issued: IssuedOverlayUrl, model: Model, h: HtmlBuilder<Message>) =>
   h.div(
